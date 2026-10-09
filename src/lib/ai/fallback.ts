@@ -4,7 +4,17 @@ import {
   AssessmentMetadata,
   IssueAnalysisSchema,
   RepairAssessmentSchema,
+  ChallengeCodeStatus,
 } from './schemas';
+
+export interface FallbackIntegrityContext {
+  challengeRequired?: boolean;
+  /** Only ever the model's structured read; the fallback cannot read a code. */
+  challengeCodeStatus?: ChallengeCodeStatus;
+  sameImage?: boolean;
+  /** Caller already proved duplication by content hash; skip the URL check. */
+  forceDuplicate?: boolean;
+}
 
 /**
  * Deterministic Issue Analysis Fallback
@@ -173,12 +183,21 @@ export function fallbackVerifyRepair(
   workNotes: string,
   department: string,
   isSafetyCritical: boolean = false,
-  reason: string = 'AI service unavailable - deterministic rule-based verification'
+  reason: string = 'AI service unavailable - deterministic rule-based verification',
+  integrity: FallbackIntegrityContext = {}
 ): { assessment: RepairAssessment; metadata: AssessmentMetadata } {
   const notesLower = (workNotes || '').toLowerCase();
+  // The deterministic path cannot read a code from a photo, so a required
+  // challenge fails safe into review rather than being assumed correct.
+  const challengeStatus: ChallengeCodeStatus = integrity.challengeRequired
+    ? integrity.challengeCodeStatus || 'absent'
+    : 'absent';
 
-  // Adversarial Check 1: Duplicate Image uploaded
-  if (beforePhotoUrl && afterPhotoUrl && beforePhotoUrl.trim() === afterPhotoUrl.trim()) {
+  // Adversarial Check 1: Duplicate Image uploaded (by URL or by content hash)
+  if (
+    integrity.forceDuplicate ||
+    (beforePhotoUrl && afterPhotoUrl && beforePhotoUrl.trim() === afterPhotoUrl.trim())
+  ) {
     const assessment: RepairAssessment = RepairAssessmentSchema.parse({
       visibleChanges: ['Zero visible change detected between before and after image files.'],
       remainingConcerns: ['Technician submitted identical image asset for both before and after evidence.'],
@@ -186,6 +205,13 @@ export function fallbackVerifyRepair(
       visualOutcome: 'unchanged',
       needsHumanReview: true,
       recommendedAction: 'request_repair',
+      sceneMatch: 'match',
+      repairOutcome: 'unchanged',
+      challengeCodeStatus: challengeStatus,
+      screenshotLikelihood: 'low',
+      syntheticLikelihood: 'low',
+      artifactSignals: ['Identical before and after image hash.'],
+      reasons: ['Exact byte-identical evidence submitted for before and after.'],
     });
 
     const metadata: AssessmentMetadata = {
@@ -217,6 +243,13 @@ export function fallbackVerifyRepair(
       visualOutcome: 'inconclusive',
       needsHumanReview: true,
       recommendedAction: 'manual_review',
+      sceneMatch: 'uncertain',
+      repairOutcome: 'uncertain',
+      challengeCodeStatus: challengeStatus,
+      screenshotLikelihood: 'low',
+      syntheticLikelihood: 'low',
+      artifactSignals: [],
+      reasons: ['Technician notes indicate an incomplete or temporary repair.'],
     });
 
     const metadata: AssessmentMetadata = {
@@ -263,6 +296,13 @@ export function fallbackVerifyRepair(
     visualOutcome: 'improved',
     needsHumanReview: isSafetyCritical,
     recommendedAction: isSafetyCritical ? 'manual_review' : 'request_confirmation',
+    sceneMatch: 'match',
+    repairOutcome: 'improved',
+    challengeCodeStatus: challengeStatus,
+    screenshotLikelihood: 'low',
+    syntheticLikelihood: 'low',
+    artifactSignals: [],
+    reasons: ['Deterministic rule-based verification (live model unavailable).'],
   });
 
   const metadata: AssessmentMetadata = {

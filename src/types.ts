@@ -1,4 +1,5 @@
 import { IssueAnalysis, RepairAssessment, AssessmentMetadata } from './lib/ai/schemas';
+import type { EvidenceReference } from './lib/evidence/types';
 
 export type Department =
   | 'Plumbing'
@@ -61,6 +62,17 @@ export interface RepairAssessmentRecord {
   reviewedBy?: string;
   reviewedAt?: string;
   createdAt: string;
+  // Phase 2.5 evidence integrity & fraud-resistance signals (all additive).
+  beforeEvidence?: EvidenceReference;
+  afterEvidence?: EvidenceReference;
+  riskLevel?: 'low' | 'medium' | 'high';
+  riskSignals?: { code: string; level: string; reason: string; weight: number }[];
+  challengeState?: {
+    id?: string;
+    status: 'match' | 'mismatch' | 'unreadable' | 'absent';
+    required: boolean;
+    state?: string;
+  };
 }
 
 export interface Ticket {

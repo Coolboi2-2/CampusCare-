@@ -2,17 +2,22 @@ export interface InlineImagePart {
   inlineData: { mimeType: string; data: string };
 }
 
-const MAX_IMAGE_BYTES = 8 * 1024 * 1024;
+export interface ImageBytes {
+  bytes: Buffer;
+  mimeType: string;
+}
+
+export const MAX_IMAGE_BYTES = 8 * 1024 * 1024;
 const FETCH_TIMEOUT_MS = 10000;
 // Best-effort SSRF guard for the common private ranges.
 const PRIVATE_HOST =
   /^(localhost|0\.0\.0\.0|127\.|10\.|192\.168\.|169\.254\.|172\.(1[6-9]|2\d|3[01])\.|\[::1\])/i;
 
 /**
- * Downloads a photo URL and returns a GenAI inline image part.
+ * Downloads a photo URL and returns its bytes plus content type.
  * Throws on non-http(s), private hosts, non-image content, or oversized payloads.
  */
-export async function fetchImagePart(url: string): Promise<InlineImagePart> {
+export async function fetchImageBytes(url: string): Promise<ImageBytes> {
   let parsed: URL;
   try {
     parsed = new URL(url);
@@ -49,8 +54,16 @@ export async function fetchImagePart(url: string): Promise<InlineImagePart> {
       throw new Error('Photo exceeds the 8MB inline image limit');
     }
 
-    return { inlineData: { mimeType, data: bytes.toString('base64') } };
+    return { bytes, mimeType };
   } finally {
     clearTimeout(timer);
   }
+}
+
+/**
+ * Downloads a photo URL and returns a GenAI inline image part.
+ */
+export async function fetchImagePart(url: string): Promise<InlineImagePart> {
+  const { bytes, mimeType } = await fetchImageBytes(url);
+  return { inlineData: { mimeType, data: bytes.toString('base64') } };
 }

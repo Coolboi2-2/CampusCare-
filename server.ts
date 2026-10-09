@@ -21,6 +21,17 @@ import type {
   RepairAssessment,
   AssessmentMetadata,
 } from './src/lib/ai/schemas.js';
+import { EvidenceStore } from './src/lib/evidence/store.js';
+import { ChallengeStore } from './src/lib/evidence/challenge.js';
+import type { ChallengeState } from './src/lib/evidence/challenge.js';
+import { extractMetadata } from './src/lib/evidence/metadata.js';
+import { assessRisk, canRequestConfirmation } from './src/lib/evidence/riskPolicy.js';
+import type {
+  EvidenceRecord,
+  EvidenceReference,
+  MetadataSignals,
+} from './src/lib/evidence/types.js';
+import type { InlineImagePart } from './src/lib/ai/image.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -82,6 +93,9 @@ const StatusBodySchema = z.object({
 const RepairBodySchema = z.object({
   workNotes: z.string().optional(),
   afterPhotoUrl: OptionalUrl,
+  // Phase 2.5: in-app capture sends preserved bytes; a URL remains supported.
+  afterPhotoBase64: z.string().optional(),
+  challengeId: z.string().optional(),
   technicianName: z.string().min(1).optional(),
   role: RoleSchema.optional(),
 });
@@ -117,6 +131,88 @@ if (geminiApiKey) {
       },
     },
   });
+}
+
+// =================== PHASE 2.5: EVIDENCE INTEGRITY ===================
+// Preserved evidence assets (bytes addressed by a stable key) and one-time
+// repair-session challenges. In a production deployment these back onto the
+// app's database/storage provider; the interfaces here stay the same.
+const evidenceStore = new EvidenceStore();
+const challengeStore = new ChallengeStore();
+
+/**
+ * Resolve the submitting actor. This demo has no authentication service, so an
+ * actor header is preferred and the request body is a documented fallback.
+ * `technicianName` is never trusted for authorization or audit decisions.
+ */
+function resolveActor(
+  req: Request,
+  fallbackName?: string,
+  fallbackRole?: string
+): { name: string; role: UserRole } {
+  const headerRole = req.header('x-actor-role');
+  const headerName = req.header('x-actor-name');
+  const candidateRole = headerRole || fallbackRole || 'student';
+  const role: UserRole = (['student', 'technician', 'admin'] as const).includes(candidateRole as UserRole)
+    ? (candidateRole as UserRole)
+    : 'student';
+  return { name: headerName || fallbackName || 'Unknown Actor', role };
+}
+
+/** Minimal actor gate for evidence reads. Not a substitute for real auth. */
+function requireActor(req: Request, res: Response, next: NextFunction) {
+  const role = req.header('x-actor-role') || (req.query.role as string | undefined);
+  if (!role || !(['student', 'technician', 'admin'] as const).includes(role as UserRole)) {
+    return res.status(401).json({ error: 'Actor role required to access evidence' });
+  }
+  return next();
+}
+
+function mimeForFormat(format: string | null): string {
+  switch (format) {
+    case 'jpeg':
+    case 'jpg':
+      return 'image/jpeg';
+    case 'png':
+      return 'image/png';
+    case 'webp':
+      return 'image/webp';
+    case 'gif':
+      return 'image/gif';
+    case 'tiff':
+      return 'image/tiff';
+    case 'avif':
+      return 'image/avif';
+    case 'heif':
+      return 'image/heif';
+    default:
+      return 'application/octet-stream';
+  }
+}
+
+/** Decode a data URL or raw base64 body into bytes. Size is enforced by the store. */
+function decodeBase64Image(input: string): Buffer {
+  const commaIndex = input.indexOf(',');
+  const payload = input.startsWith('data:') && commaIndex >= 0 ? input.slice(commaIndex + 1) : input;
+  const cleaned = payload.replace(/\s/g, '');
+  if (!cleaned) throw new Error('No image data provided');
+  return Buffer.from(cleaned, 'base64');
+}
+
+function toEvidenceReference(record: EvidenceRecord): EvidenceReference {
+  return {
+    id: record.id,
+    sha256: record.sha256,
+    format: record.format,
+    width: record.width,
+    height: record.height,
+    bytes: record.bytes,
+    dHash: record.dHash,
+  };
+}
+
+function toInlinePart(record: EvidenceRecord, bytes: Buffer): InlineImagePart {
+  return { inlineData: { mimeType: mimeForFormat(record.format), data: bytes.toString('base64') } };
 }
 
 // In-Memory Seed Tickets conforming to CampusCare AI Reliability v1
@@ -619,35 +715,104 @@ app.post('/api/tickets/:id/repair', async (req: Request, res: Response) => {
 
   const v = validateBody(RepairBodySchema, req.body);
   if (v.error) return res.status(400).json({ error: v.error });
-  const { workNotes, afterPhotoUrl, technicianName, role } = v.data;
+  const { workNotes, afterPhotoUrl, afterPhotoBase64, challengeId, technicianName, role } = v.data;
+
+  const actor = resolveActor(req, technicianName, role);
 
   // Validate state transition (missing role defaults to least-privilege 'student')
   const validation = validateStateTransition(ticket, 'awaiting_verification', {
-    actorName: technicianName || 'Technician',
-    actorRole: (role as UserRole) || 'student',
+    actorName: actor.name,
+    actorRole: actor.role,
   });
 
   if (!validation.allowed) {
     return res.status(403).json({ error: validation.reason });
   }
 
-  const resolvedAfterPhoto = afterPhotoUrl || ticket.beforePhotoUrl;
   const resolvedNotes = workNotes || 'Repairs completed by technician.';
+  const resolvedAfterPhoto = afterPhotoUrl || ticket.beforePhotoUrl;
+
+  // --- Challenge state: the server owns the code; the client only holds an id. ---
+  // Any authorized evidence submission requires a session challenge. Omitting
+  // it is not a way to avoid the check: absence routes to review, and an
+  // unknown/expired/reused id is treated as an invalid challenge state.
+  const challengeRequired = actor.role === 'technician' || actor.role === 'admin';
+  const challengeValidation = challengeId
+    ? challengeStore.validate(String(challengeId), ticketId)
+    : undefined;
+  const expectedCode = challengeValidation?.record?.code;
+
+  // --- Preserve evidence bytes now; verification never re-fetches mutable URLs. ---
+  let afterEvidence: EvidenceRecord;
+  try {
+    afterEvidence = afterPhotoBase64
+      ? await evidenceStore.ingestBytes(ticketId, 'after', decodeBase64Image(afterPhotoBase64), actor)
+      : await evidenceStore.ingestFromUrl(ticketId, 'after', resolvedAfterPhoto, actor);
+  } catch (err: any) {
+    return res
+      .status(400)
+      .json({ error: `After-repair evidence rejected: ${err?.message || 'unreadable image'}` });
+  }
+
+  let beforeEvidence: EvidenceRecord | undefined;
+  try {
+    beforeEvidence = await evidenceStore.ingestFromUrl(ticketId, 'before', ticket.beforePhotoUrl, actor);
+  } catch {
+    // Original evidence unavailable; verification still proceeds via the URL.
+  }
+
+  const sameImage = Boolean(beforeEvidence && beforeEvidence.sha256 === afterEvidence.sha256);
+  const reuseMatches = evidenceStore
+    .findReuse(afterEvidence)
+    .filter((m) => !(sameImage && m.type === 'exact' && m.evidenceId === beforeEvidence?.id));
+
+  const afterBytes = evidenceStore.getBytes(afterEvidence.id)!;
+  let metadataSignals: MetadataSignals;
+  try {
+    metadataSignals = await extractMetadata(afterBytes, {
+      format: afterEvidence.format!,
+      width: afterEvidence.width!,
+      height: afterEvidence.height!,
+    });
+  } catch {
+    metadataSignals = {
+      hasCameraMetadata: false,
+      format: afterEvidence.format,
+      width: afterEvidence.width,
+      height: afterEvidence.height,
+    };
+  }
+
+  const beforeBytes = beforeEvidence ? evidenceStore.getBytes(beforeEvidence.id) : undefined;
+
+  // Stable, authorized viewing URL to the preserved asset. Used for the
+  // verification input and stored on the ticket so base64 captures still
+  // display and are never confused with the before-photo URL.
+  const preservedAfterUrl = afterPhotoUrl || `/api/evidence/${afterEvidence.id}/raw?role=technician`;
 
   // Run AI Before/After Verification with strict validation & safety gate
   let assessment: RepairAssessment;
   let decision: VerificationDecision;
   let metadata: AssessmentMetadata;
+  let integrity: { sameImage: boolean };
   try {
-    ({ assessment, decision, metadata } = await verifyRepair(
+    ({ assessment, decision, metadata, integrity } = await verifyRepair(
       {
         ticketId: ticket.id,
         originalDescription: ticket.description,
         department: ticket.department,
         beforePhotoUrl: ticket.beforePhotoUrl,
-        afterPhotoUrl: resolvedAfterPhoto,
+        afterPhotoUrl: preservedAfterUrl,
         technicianNotes: resolvedNotes,
         isSafetyCritical: ticket.isSafetyCritical,
+        beforeEvidence: beforeEvidence ? toEvidenceReference(beforeEvidence) : undefined,
+        afterEvidence: toEvidenceReference(afterEvidence),
+        beforeInline:
+          beforeEvidence && beforeBytes ? toInlinePart(beforeEvidence, beforeBytes) : undefined,
+        afterInline: toInlinePart(afterEvidence, afterBytes),
+        metadataSignals,
+        challengeRequired,
+        challengeCode: expectedCode,
       },
       aiClient
     ));
@@ -655,10 +820,42 @@ app.post('/api/tickets/:id/repair', async (req: Request, res: Response) => {
     return res.status(502).json({ error: err?.message || 'Repair verification failed' });
   }
 
+  // --- Challenge outcome: server validates its own state; the model only reads. ---
+  let challengeStatus: 'match' | 'mismatch' | 'unreadable' | 'absent' =
+    assessment.challengeCodeStatus || 'absent';
+  let challengeStateInvalid = false;
+  let challengeStateReason: string | undefined;
+  if (challengeId && challengeValidation?.state !== 'valid') {
+    challengeStateInvalid = true;
+    challengeStateReason = challengeValidation?.state || 'unknown';
+    challengeStatus = 'absent';
+  }
+
+  // --- Deterministic risk policy (never a model-supplied numeric score) ---
+  const risk = assessRisk({
+    ticketId: ticket.id,
+    isSafetyCritical: ticket.isSafetyCritical,
+    modelNeedsHumanReview: decision.requiresHumanReview,
+    sameImage: integrity.sameImage,
+    reuseMatches,
+    challenge: {
+      required: challengeRequired,
+      status: challengeStatus,
+      stateInvalid: challengeStateInvalid,
+      stateReason: challengeStateReason,
+    },
+    metadata: metadataSignals,
+    assessment,
+  });
+
+  const requiresHumanReview = risk.requiresHumanReview || decision.requiresHumanReview;
+  const allowedToRequestConfirmation =
+    risk.level === 'low' && !requiresHumanReview && decision.allowedToRequestConfirmation;
+
   // Only mutate ticket state after verification succeeds.
   ticket.workNotes = resolvedNotes;
-  ticket.afterPhotoUrl = resolvedAfterPhoto;
-  ticket.status = 'awaiting_verification';
+  ticket.afterPhotoUrl = preservedAfterUrl;
+  ticket.status = risk.blocked ? 'escalated' : 'awaiting_verification';
   ticket.updatedAt = new Date().toISOString();
 
   const attemptRecord: RepairAssessmentRecord = {
@@ -666,25 +863,40 @@ app.post('/api/tickets/:id/repair', async (req: Request, res: Response) => {
     ticketId: ticket.id,
     attemptNumber: ticket.repairAttempts.length + 1,
     originalEvidenceUrl: ticket.beforePhotoUrl,
-    afterEvidenceUrl: resolvedAfterPhoto,
+    afterEvidenceUrl: preservedAfterUrl,
     assessment,
     metadata,
     decision: 'pending',
-    requiresHumanReview: decision.requiresHumanReview,
-    allowedToRequestConfirmation: decision.allowedToRequestConfirmation,
+    requiresHumanReview,
+    allowedToRequestConfirmation,
     technicianNotes: resolvedNotes,
     createdAt: new Date().toISOString(),
+    beforeEvidence: beforeEvidence ? toEvidenceReference(beforeEvidence) : undefined,
+    afterEvidence: toEvidenceReference(afterEvidence),
+    riskLevel: risk.level,
+    riskSignals: risk.signals,
+    challengeState: {
+      id: challengeId ? String(challengeId) : undefined,
+      status: challengeStatus,
+      required: challengeRequired,
+      state: challengeValidation?.state,
+    },
   };
 
   // Preserve history
   ticket.repairAttempts.push(attemptRecord);
   ticket.latestVerification = attemptRecord;
 
+  if (challengeRequired && challengeValidation?.state === 'valid') {
+    challengeStore.markUsed(String(challengeId));
+  }
+  if (risk.level !== 'low') evidenceStore.markFlagged(afterEvidence.id);
+
   ticket.auditTrail.push({
     id: `evt-${Date.now()}-work`,
     timestamp: ticket.updatedAt,
-    actor: technicianName || ticket.assignedTechnician || 'Technician',
-    role: 'technician',
+    actor: actor.name,
+    role: actor.role,
     action: `Completed Repair Attempt #${attemptRecord.attemptNumber}`,
     notes: resolvedNotes,
   });
@@ -694,12 +906,50 @@ app.post('/api/tickets/:id/repair', async (req: Request, res: Response) => {
     timestamp: new Date().toISOString(),
     actor: `CampusCare AI (${metadata.provider === 'gemma' ? 'Gemini 3.8 Flash Live' : 'Deterministic Rule'})`,
     role: 'admin',
-    action: `Verification: Outcome=${assessment.visualOutcome}, Action=${assessment.recommendedAction}`,
-    notes: `Evidence Quality: ${assessment.evidenceQuality}. ${decision.requiresHumanReview ? 'Requires Human Review.' : 'Eligible for student sign-off.'}`,
+    action: `Verification: Outcome=${assessment.visualOutcome}, Action=${assessment.recommendedAction}, Risk=${risk.level}`,
+    notes: `Evidence sha256(a)=${afterEvidence.sha256.slice(0, 12)}…, ${afterEvidence.format} ${afterEvidence.width}x${afterEvidence.height}. ${requiresHumanReview ? 'Requires Human Review.' : 'Eligible for student sign-off.'}${risk.signals.length ? ' Signals: ' + risk.signals.map((s) => s.code).join(', ') : ''}`,
   });
 
   return res.json(ticket);
 });
+
+// 7b. Issue a one-time repair-session challenge (technician/admin only)
+app.post('/api/tickets/:id/repair/challenge', (req: Request, res: Response) => {
+  const ticketId = String(req.params.id);
+  const ticket = tickets.get(ticketId);
+  if (!ticket) return res.status(404).json({ error: 'Ticket not found' });
+
+  const actor = resolveActor(req, req.body?.technicianName, req.body?.role);
+  if (actor.role !== 'technician' && actor.role !== 'admin') {
+    return res.status(403).json({ error: 'Only technicians or admins may request a repair challenge' });
+  }
+  if (ticket.status === 'resolved') {
+    return res.status(409).json({ error: 'Cannot start repair evidence for a resolved ticket' });
+  }
+
+  const record = challengeStore.issue({ ticketId, actor: actor.name, actorRole: actor.role });
+  return res.json({ challengeId: record.id, code: record.code, expiresAt: record.expiresAt, ticketId });
+});
+
+// 7c. Access-controlled evidence metadata and preserved bytes
+app.get('/api/evidence/:id', requireActor, (req: Request, res: Response) => {
+  const record = evidenceStore.get(String(req.params.id));
+  if (!record) return res.status(404).json({ error: 'Evidence not found' });
+  const { storageKey, ...safe } = record;
+  void storageKey;
+  return res.json(safe);
+});
+
+app.get('/api/evidence/:id/raw', requireActor, (req: Request, res: Response) => {
+  const record = evidenceStore.get(String(req.params.id));
+  if (!record) return res.status(404).json({ error: 'Evidence not found' });
+  const bytes = evidenceStore.getBytes(record.id);
+  if (!bytes) return res.status(410).json({ error: 'Evidence bytes unavailable' });
+  res.setHeader('Content-Type', mimeForFormat(record.format));
+  res.setHeader('Cache-Control', 'private, max-age=3600');
+  return res.send(bytes);
+});
+
 
 // 8. Confirm resolution (Student or Admin)
 app.put('/api/tickets/:id/resolve', (req: Request, res: Response) => {
@@ -719,6 +969,19 @@ app.put('/api/tickets/:id/resolve', (req: Request, res: Response) => {
 
   if (!validation.allowed) {
     return res.status(403).json({ error: validation.reason });
+  }
+
+  // Belt-and-suspenders backend enforcement: even if the state machine allowed
+  // it, an integrity-review or safety-critical ticket cannot be confirmed by a
+  // non-admin. Confirmation UI is not the security boundary.
+  const gate = canRequestConfirmation(
+    ticket.latestVerification?.riskLevel ? { level: ticket.latestVerification.riskLevel } : undefined,
+    ticket.latestVerification,
+    ticket.isSafetyCritical,
+    (role as UserRole) === 'admin'
+  );
+  if (!gate.allowed) {
+    return res.status(403).json({ error: gate.reason });
   }
 
   ticket.status = 'resolved';
@@ -840,6 +1103,8 @@ app.get('/api/analytics', (req: Request, res: Response) => {
 app.post('/api/demo/reset', (req: Request, res: Response) => {
   tickets = new Map(initialTickets.map((t) => [t.id, JSON.parse(JSON.stringify(t))]));
   ticketCounter = 1045;
+  evidenceStore.reset();
+  challengeStore.reset();
   return res.json({ msg: 'Demo state reset successfully', total: tickets.size });
 });
 

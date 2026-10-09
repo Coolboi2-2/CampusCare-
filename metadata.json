@@ -1,0 +1,9 @@
+{
+  "name": "CampusCare - Smart Campus Issue Resolution",
+  "description": "Smart campus maintenance platform powered by AI. Report it with photo & natural language, route it deterministically to maintenance queues, track repair, and verify before-and-after evidence.",
+  "requestFrame": "full",
+  "prompt": "CampusCare - Campus maintenance & issue-resolution platform with AI issue understanding, department routing, repair tracking, and before/after photo verification.",
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

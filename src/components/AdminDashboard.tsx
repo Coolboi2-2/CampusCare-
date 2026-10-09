@@ -1,6 +1,7 @@
-import React, { useState } from 'react';
-import { AlertTriangle, Inbox, RefreshCw, Search, SearchX } from 'lucide-react';
-import { Ticket, Department } from '../types';
+import React, { useEffect, useState } from 'react';
+import { AlertTriangle, Inbox, RefreshCw, Search, SearchX, ShieldCheck, History, UserCog } from 'lucide-react';
+import { Ticket, Department, SecurityEvent } from '../types';
+import { apiFetch, readApiError } from '../lib/api';
 import {
   StatusBadge,
   PriorityBadge,
@@ -10,13 +11,37 @@ import {
 
 interface AdminDashboardProps {
   tickets: Ticket[];
+  /** CSRF token for authenticated admin mutations (assign, role changes). */
+  csrfToken: string;
   onSelectTicket: (ticket: Ticket) => void;
   onReassignTicket: (ticket: Ticket, newDept: Department) => void;
   onRefresh: () => void;
 }
 
+interface StaffRow {
+  id: string;
+  name: string;
+  email: string;
+  role: 'admin' | 'technician';
+  department?: string;
+}
+
+const SECURITY_ACTION_LABELS: Record<string, string> = {
+  login_success: 'Signed in',
+  login_failed: 'Failed sign-in attempt',
+  login_rate_limited: 'Rate-limited sign-in',
+  logout: 'Signed out',
+  access_denied: 'Access denied',
+  work_order_assigned: 'Assigned work order',
+  work_order_reassigned: 'Reassigned work order',
+  staff_role_changed: 'Changed staff role',
+  resolution_admin_override: 'Admin resolution override',
+  demo_state_reset: 'Reset demo state',
+};
+
 export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   tickets,
+  csrfToken,
   onSelectTicket,
   onReassignTicket,
   onRefresh,
@@ -25,6 +50,51 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const [deptFilter, setDeptFilter] = useState<string>('All');
   const [statusFilter, setStatusFilter] = useState<string>('All');
   const [priorityFilter, setPriorityFilter] = useState<string>('All');
+  const [audit, setAudit] = useState<SecurityEvent[]>([]);
+  const [staff, setStaff] = useState<StaffRow[]>([]);
+  const [adminError, setAdminError] = useState<string | null>(null);
+
+  const loadAdminData = async () => {
+    try {
+      const [auditRes, staffRes] = await Promise.all([
+        apiFetch('/api/admin/audit?limit=10'),
+        apiFetch('/api/admin/users'),
+      ]);
+      if (auditRes.ok) setAudit((await auditRes.json()) as SecurityEvent[]);
+      if (staffRes.ok) setStaff((await staffRes.json()) as StaffRow[]);
+    } catch {
+      /* audit/roster are supplementary; the ticket table already handles load errors */
+    }
+  };
+
+  useEffect(() => {
+    loadAdminData();
+  }, []);
+
+  const handleRefresh = () => {
+    onRefresh();
+    loadAdminData();
+  };
+
+  const changeStaffRole = async (userId: string, role: 'admin' | 'technician') => {
+    setAdminError(null);
+    try {
+      const res = await apiFetch(`/api/admin/users/${userId}/role`, {
+        method: 'PUT',
+        csrfToken,
+        body: JSON.stringify({ role }),
+      });
+      if (!res.ok) {
+        setAdminError(await readApiError(res, 'Could not change that staff role.'));
+        return;
+      }
+      const updated = (await res.json()) as StaffRow;
+      setStaff((prev) => prev.map((s) => (s.id === updated.id ? updated : s)));
+      loadAdminData();
+    } catch {
+      setAdminError('Could not reach the server to change that role.');
+    }
+  };
 
   // Metrics
   const total = tickets.length;
@@ -33,6 +103,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const escalatedOrReview = tickets.filter(
     (t) => t.status === 'escalated' || t.aiAssessment.needsHumanReview
   ).length;
+  const critical = tickets.filter((t) => t.isSafetyCritical && t.status !== 'resolved').length;
   const resolved = tickets.filter((t) => t.status === 'resolved').length;
   const resolutionRate = total > 0 ? Math.round((resolved / total) * 100) : 0;
 
@@ -70,7 +141,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         </div>
         <button
           type="button"
-          onClick={onRefresh}
+          onClick={handleRefresh}
           className="inline-flex items-center justify-center gap-2 px-3.5 py-2 rounded-control border border-line bg-surface hover:bg-surface-muted text-slate-700 text-xs font-semibold shadow-card transition-colors shrink-0"
         >
           <RefreshCw className="w-3.5 h-3.5" aria-hidden="true" />
@@ -79,7 +150,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       </div>
 
       {/* KPI Metric Cards */}
-      <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
         <div className="bg-surface rounded-card border border-line shadow-card p-4">
           <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">
             Total Logged
@@ -108,16 +179,24 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">
             Human Review Queue
           </span>
-          <div className="text-2xl font-extrabold text-rose-600 mt-1">{escalatedOrReview}</div>
-          <span className="text-[11px] text-rose-500">Safety / uncertainty</span>
+          <div className="text-2xl font-extrabold text-warning-600 mt-1">{escalatedOrReview}</div>
+          <span className="text-[11px] text-warning-600">Safety / uncertainty</span>
         </div>
 
-        <div className="bg-surface rounded-card border border-line shadow-card p-4 col-span-2 sm:col-span-1">
+        <div className="bg-surface rounded-card border border-line shadow-card p-4">
+          <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">
+            Critical Issues
+          </span>
+          <div className="text-2xl font-extrabold text-critical-600 mt-1">{critical}</div>
+          <span className="text-[11px] text-critical-600">Open safety-critical</span>
+        </div>
+
+        <div className="bg-surface rounded-card border border-line shadow-card p-4">
           <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">
             Verified Resolution Rate
           </span>
-          <div className="text-2xl font-extrabold text-emerald-600 mt-1">{resolutionRate}%</div>
-          <span className="text-[11px] text-emerald-600">Confirmed by students or admin</span>
+          <div className="text-2xl font-extrabold text-success-600 mt-1">{resolutionRate}%</div>
+          <span className="text-[11px] text-success-600">Confirmed by students or admin</span>
         </div>
       </div>
 
@@ -167,6 +246,82 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
             );
           })}
         </div>
+      </div>
+
+      {/* Administrative oversight: recent privileged activity + staff roles */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <section className="bg-surface rounded-card border border-line shadow-card p-5">
+          <div className="flex items-center gap-2 mb-3">
+            <History className="w-4 h-4 text-navy-800" aria-hidden="true" />
+            <h2 className="text-xs font-bold uppercase tracking-wider text-slate-700">
+              Recent administrative activity
+            </h2>
+          </div>
+          {audit.length === 0 ? (
+            <p className="text-xs text-slate-500">No privileged activity recorded yet.</p>
+          ) : (
+            <ul className="divide-y divide-line">
+              {audit.map((event) => (
+                <li key={event.id} className="py-2.5 flex items-start gap-3">
+                  <span className="mt-1.5 w-1.5 h-1.5 rounded-full bg-brand-500 shrink-0" aria-hidden="true" />
+                  <div className="min-w-0 flex-1">
+                    <div className="text-xs font-semibold text-slate-800">
+                      {SECURITY_ACTION_LABELS[event.action] || event.action}
+                      {event.detail ? <span className="font-normal text-slate-500"> — {event.detail}</span> : null}
+                    </div>
+                    <div className="text-[11px] text-slate-400 mt-0.5">
+                      {event.actor} · {new Date(event.timestamp).toLocaleString()}
+                    </div>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
+
+        <section className="bg-surface rounded-card border border-line shadow-card p-5">
+          <div className="flex items-center gap-2 mb-3">
+            <UserCog className="w-4 h-4 text-navy-800" aria-hidden="true" />
+            <h2 className="text-xs font-bold uppercase tracking-wider text-slate-700">Staff &amp; roles</h2>
+          </div>
+          {adminError && (
+            <p
+              role="alert"
+              className="mb-2 text-xs text-critical-700 bg-critical-50 border border-critical-200 rounded-control px-2.5 py-1.5"
+            >
+              {adminError}
+            </p>
+          )}
+          <ul className="divide-y divide-line">
+            {staff.map((member) => (
+              <li key={member.id} className="py-2.5 flex items-center gap-3">
+                <div className="min-w-0 flex-1">
+                  <div className="text-xs font-semibold text-slate-800 truncate">{member.name}</div>
+                  <div className="text-[11px] text-slate-500 truncate">{member.email}</div>
+                </div>
+                <label htmlFor={`role-${member.id}`} className="sr-only">
+                  Role for {member.name}
+                </label>
+                <select
+                  id={`role-${member.id}`}
+                  value={member.role}
+                  onChange={(e) => changeStaffRole(member.id, e.target.value as 'admin' | 'technician')}
+                  className="p-1.5 bg-surface-muted border border-line rounded-control text-xs font-medium focus:outline-hidden focus:ring-2 focus:ring-brand-500"
+                >
+                  <option value="technician">Technician</option>
+                  <option value="admin">Administrator</option>
+                </select>
+              </li>
+            ))}
+            {staff.length === 0 && (
+              <li className="py-2 text-xs text-slate-500">No staff accounts configured.</li>
+            )}
+          </ul>
+          <p className="mt-3 text-[11px] text-slate-400 flex items-center gap-1.5">
+            <ShieldCheck className="w-3.5 h-3.5" aria-hidden="true" />
+            Only administrators can change staff roles. You cannot remove your own admin access.
+          </p>
+        </section>
       </div>
 
       {/* Filter and Master Table */}
@@ -336,7 +491,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                         {ticket.isSafetyCritical && <SafetyBadge />}
                       </div>
                       {ticket.aiAssessment.needsHumanReview && (
-                        <div className="text-[10px] text-rose-600 font-bold flex items-center gap-0.5 mt-1">
+                        <div className="text-[10px] text-critical-600 font-bold flex items-center gap-0.5 mt-1">
                           <AlertTriangle className="w-3 h-3 shrink-0" aria-hidden="true" />
                           <span>Flagged for human review</span>
                         </div>

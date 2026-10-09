@@ -31,6 +31,32 @@ export interface User {
   campusLocation?: string;
 }
 
+/** Authenticated staff identity (admin / technician) returned by the server. */
+export interface StaffSessionUser {
+  id: string;
+  name: string;
+  email: string;
+  role: 'admin' | 'technician';
+  department?: string;
+}
+
+export interface AuthSession {
+  user: StaffSessionUser;
+  csrfToken: string;
+  expiresAt?: string;
+}
+
+/** Security-sensitive administrative audit event. */
+export interface SecurityEvent {
+  id: string;
+  timestamp: string;
+  actor: string;
+  role: UserRole | 'anonymous';
+  action: string;
+  detail?: string;
+  ip?: string;
+}
+
 export interface LocationDetail {
   zone: string;
   building: string;

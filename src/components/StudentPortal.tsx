@@ -97,7 +97,7 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
       <div className="space-y-4">
         {filteredTickets.length === 0 ? (
           <div className="bg-surface rounded-card border border-line shadow-card p-12 text-center">
-            <CheckCircle2 className="w-10 h-10 mx-auto text-emerald-500 mb-2" />
+            <CheckCircle2 className="w-10 h-10 mx-auto text-success-500 mb-2" />
             <h2 className="font-bold text-slate-800 text-sm">No unresolved tickets in this view</h2>
             <p className="text-xs text-slate-500 mt-1">
               All reported campus facilities are operating normally or have been resolved.
@@ -197,21 +197,21 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
                       {canConfirm ? (
                         <button
                           onClick={() => onOpenConfirmModal(ticket)}
-                          className="inline-flex items-center justify-center gap-1.5 px-4 py-2 rounded-control bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold transition-colors"
+                          className="inline-flex items-center justify-center gap-1.5 px-4 py-2 rounded-control bg-success-600 hover:bg-success-700 text-white text-xs font-bold transition-colors"
                         >
                           <CheckCircle2 className="w-3.5 h-3.5" />
                           <span>Confirm Resolved</span>
                         </button>
                       ) : (
-                        <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-rose-700 bg-rose-50 px-2.5 py-1.5 rounded-control border border-rose-200">
-                          <ShieldAlert className="w-3.5 h-3.5 text-rose-600 shrink-0" />
+                        <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-critical-700 bg-critical-50 px-2.5 py-1.5 rounded-control border border-critical-200">
+                          <ShieldAlert className="w-3.5 h-3.5 text-critical-600 shrink-0" />
                           <span>Admin Review Required</span>
                         </span>
                       )}
 
                       <button
                         onClick={() => onOpenReopenModal(ticket)}
-                        className="inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-control bg-surface border border-rose-200 text-rose-700 hover:bg-rose-50 text-xs font-semibold transition-colors"
+                        className="inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-control bg-surface border border-critical-200 text-critical-700 hover:bg-critical-50 text-xs font-semibold transition-colors"
                       >
                         <RotateCcw className="w-3.5 h-3.5" />
                         <span>Reopen</span>

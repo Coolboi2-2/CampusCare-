@@ -281,13 +281,13 @@ export const DemoWalkthroughModal: React.FC<DemoWalkthroughModalProps> = ({
         </div>
 
         {/* Adversarial tests */}
-        <div className="mt-4 p-4 bg-amber-50/60 rounded-card border border-amber-200 text-xs space-y-2">
+        <div className="mt-4 p-4 bg-warning-50/60 rounded-card border border-warning-200 text-xs space-y-2">
           <div className="flex items-center justify-between gap-2">
-            <span className="flex items-center gap-1.5 text-amber-800 font-bold uppercase text-[10px] tracking-wider">
+            <span className="flex items-center gap-1.5 text-warning-800 font-bold uppercase text-[10px] tracking-wider">
               <FlaskConical className="w-3.5 h-3.5" />
               Live adversarial stress tests
             </span>
-            <span className="text-[10px] text-amber-700">Verifies the AI does not hallucinate resolution</span>
+            <span className="text-[10px] text-warning-700">Verifies the AI does not hallucinate resolution</span>
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
@@ -296,7 +296,7 @@ export const DemoWalkthroughModal: React.FC<DemoWalkthroughModalProps> = ({
               disabled={isSimulating}
               className="p-2.5 rounded-control bg-surface hover:bg-slate-50 text-left text-[11px] border border-line transition-colors disabled:opacity-50"
             >
-              <div className="font-bold text-amber-800">Test: identical photo upload</div>
+              <div className="font-bold text-warning-800">Test: identical photo upload</div>
               <p className="text-[10px] text-slate-500 mt-0.5">
                 Flags &ldquo;unusable evidence&rdquo; and triggers manual review.
               </p>
@@ -307,7 +307,7 @@ export const DemoWalkthroughModal: React.FC<DemoWalkthroughModalProps> = ({
               disabled={isSimulating}
               className="p-2.5 rounded-control bg-surface hover:bg-slate-50 text-left text-[11px] border border-line transition-colors disabled:opacity-50"
             >
-              <div className="font-bold text-rose-700 flex items-center gap-1">
+              <div className="font-bold text-critical-700 flex items-center gap-1">
                 <ShieldAlert className="w-3 h-3" />
                 Test: safety hazard protection
               </div>

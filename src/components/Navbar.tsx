@@ -9,13 +9,16 @@ import {
   Building2,
   Menu,
   X,
+  LogOut,
 } from 'lucide-react';
-import { UserRole, User } from '../types';
+import { UserRole, User, AuthSession } from '../types';
 
 interface NavbarProps {
   currentRole: UserRole;
   setCurrentRole: (role: UserRole) => void;
   currentUser: User;
+  staffSession: AuthSession | null;
+  onSignOut: () => void;
   onOpenReport: () => void;
   onOpenDemoWalkthrough: () => void;
   onResetDemo: () => void;
@@ -41,14 +44,14 @@ const PORTALS: {
     label: 'Maintenance Portal',
     short: 'Maintenance',
     icon: Wrench,
-    active: 'bg-white text-amber-700 shadow-xs',
+    active: 'bg-white text-slate-800 shadow-xs',
   },
   {
     role: 'admin',
     label: 'Admin / Warden',
     short: 'Admin / Warden',
     icon: Shield,
-    active: 'bg-white text-accent-700 shadow-xs',
+    active: 'bg-white text-navy-800 shadow-xs',
   },
 ];
 
@@ -56,12 +59,15 @@ export const Navbar: React.FC<NavbarProps> = ({
   currentRole,
   setCurrentRole,
   currentUser,
+  staffSession,
+  onSignOut,
   onOpenReport,
   onOpenDemoWalkthrough,
   onResetDemo,
   isResetting,
 }) => {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const canResetDemo = staffSession?.user.role === 'admin';
 
   const selectRole = (role: UserRole) => {
     setCurrentRole(role);
@@ -83,13 +89,37 @@ export const Navbar: React.FC<NavbarProps> = ({
     </button>
   );
 
+  const IdentityChip = () =>
+    staffSession ? (
+      <div className="hidden md:flex items-center gap-2 pl-1 pr-1.5 py-1 rounded-control border border-line bg-surface-muted">
+        <div className="w-6 h-6 rounded-full bg-navy-900 text-white flex items-center justify-center text-[10px] font-bold uppercase shrink-0">
+          {staffSession.user.name.slice(0, 1)}
+        </div>
+        <div className="leading-tight">
+          <div className="text-[11px] font-bold text-slate-800 max-w-[9rem] truncate">
+            {staffSession.user.name}
+          </div>
+          <div className="text-[10px] text-slate-500 capitalize">{staffSession.user.role}</div>
+        </div>
+        <button
+          type="button"
+          onClick={onSignOut}
+          aria-label="Sign out of staff session"
+          title="Sign out"
+          className="p-1.5 rounded-control text-slate-500 hover:text-critical-700 hover:bg-critical-50 transition-colors"
+        >
+          <LogOut className="w-3.5 h-3.5" />
+        </button>
+      </div>
+    ) : null;
+
   return (
     <header className="sticky top-0 z-40 bg-surface/95 backdrop-blur-md border-b border-line shadow-xs">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex items-center justify-between h-16 gap-4">
           {/* Brand */}
           <div className="flex items-center gap-3 min-w-0">
-            <div className="w-10 h-10 rounded-card bg-gradient-to-tr from-brand-700 via-brand-600 to-accent-600 flex items-center justify-center text-white shadow-md shadow-brand-500/20 shrink-0">
+            <div className="w-10 h-10 rounded-card bg-navy-900 flex items-center justify-center text-white shadow-card shrink-0">
               <Building2 className="w-5 h-5" />
             </div>
             <div className="min-w-0">
@@ -129,7 +159,7 @@ export const Navbar: React.FC<NavbarProps> = ({
           <div className="flex items-center gap-2 shrink-0">
             <button
               onClick={onOpenDemoWalkthrough}
-              className="hidden sm:inline-flex items-center gap-1.5 px-3 py-1.5 rounded-control bg-gradient-to-r from-brand-600 to-accent-600 hover:from-brand-700 hover:to-accent-700 text-white text-xs font-bold shadow-xs hover:shadow-md transition-all active:scale-95"
+              className="hidden sm:inline-flex items-center gap-1.5 px-3 py-1.5 rounded-control bg-accent-600 hover:bg-accent-700 text-white text-xs font-bold shadow-xs transition-colors active:scale-95"
               title="Launch the guided 90-second interactive demo"
             >
               <PlayCircle className="w-4 h-4" />
@@ -146,9 +176,13 @@ export const Navbar: React.FC<NavbarProps> = ({
               <span className="sm:hidden">Report</span>
             </button>
 
-            <div className="hidden md:block">
-              <ResetButton />
-            </div>
+            <IdentityChip />
+
+            {canResetDemo && (
+              <div className="hidden md:block">
+                <ResetButton />
+              </div>
+            )}
 
             <button
               onClick={() => setIsMenuOpen((v) => !v)}
@@ -192,6 +226,33 @@ export const Navbar: React.FC<NavbarProps> = ({
               );
             })}
 
+            {staffSession && (
+              <div className="pt-2 border-t border-line">
+                <div className="flex items-center gap-2.5 px-3 py-2.5">
+                  <div className="w-7 h-7 rounded-full bg-navy-900 text-white flex items-center justify-center text-[11px] font-bold uppercase shrink-0">
+                    {staffSession.user.name.slice(0, 1)}
+                  </div>
+                  <div className="min-w-0">
+                    <div className="text-sm font-bold text-slate-800 truncate">
+                      {staffSession.user.name}
+                    </div>
+                    <div className="text-[11px] text-slate-500 capitalize">{staffSession.user.role}</div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onSignOut();
+                      setIsMenuOpen(false);
+                    }}
+                    aria-label="Sign out of staff session"
+                    className="ml-auto p-2 rounded-control text-slate-500 hover:text-critical-700 hover:bg-critical-50 transition-colors"
+                  >
+                    <LogOut className="w-4 h-4" />
+                  </button>
+                </div>
+              </div>
+            )}
+
             <div className="pt-2 border-t border-line space-y-1">
               <button
                 onClick={() => {
@@ -203,7 +264,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                 <PlayCircle className="w-4 h-4 text-accent-600" />
                 <span>90-second demo tour</span>
               </button>
-              <ResetButton withLabel />
+              {canResetDemo && <ResetButton withLabel />}
             </div>
           </div>
         )}

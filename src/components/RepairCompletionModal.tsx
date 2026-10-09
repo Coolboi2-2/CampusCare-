@@ -187,7 +187,7 @@ export const RepairCompletionModal: React.FC<RepairCompletionModalProps> = ({
         {/* Header */}
         <div className="p-5 sm:p-6 border-b border-line flex items-start justify-between gap-4">
           <div className="min-w-0">
-            <span className="inline-block text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 border border-amber-200">
+            <span className="inline-block text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-warning-100 text-warning-800 border border-warning-200">
               Step 4: Repair &amp; Verification Evidence
             </span>
             <h2 id="repair-modal-title" className="text-lg font-bold text-slate-900 mt-2">
@@ -249,7 +249,7 @@ export const RepairCompletionModal: React.FC<RepairCompletionModalProps> = ({
                       </p>
                     </>
                   ) : challengeError ? (
-                    <p className="mt-1 text-[11px] text-amber-800" role="status">
+                    <p className="mt-1 text-[11px] text-warning-800" role="status">
                       {challengeError}. You can still submit, but it will be routed for human review.
                     </p>
                   ) : (
@@ -266,7 +266,7 @@ export const RepairCompletionModal: React.FC<RepairCompletionModalProps> = ({
             {error && (
               <div
                 role="alert"
-                className="p-3 bg-rose-50 border border-rose-200 text-rose-700 text-xs rounded-control flex items-start gap-2"
+                className="p-3 bg-critical-50 border border-critical-200 text-critical-700 text-xs rounded-control flex items-start gap-2"
               >
                 <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" aria-hidden="true" />
                 <span>{error}</span>
@@ -289,7 +289,7 @@ export const RepairCompletionModal: React.FC<RepairCompletionModalProps> = ({
 
             <div>
               <label htmlFor="repair-notes" className="block text-xs font-semibold text-slate-700 mb-1">
-                Work Completed &amp; Diagnostics Notes <span className="text-rose-500">*</span>
+                Work Completed &amp; Diagnostics Notes <span className="text-critical-500">*</span>
               </label>
               <textarea
                 id="repair-notes"

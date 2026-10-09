@@ -32,6 +32,23 @@ import type {
   MetadataSignals,
 } from './src/lib/evidence/types.js';
 import type { InlineImagePart } from './src/lib/ai/image.js';
+import { SessionStore } from './src/lib/auth/sessions.js';
+import type { Session } from './src/lib/auth/sessions.js';
+import { UserStore, toPublicUser, toSessionUser } from './src/lib/auth/users.js';
+import { can } from './src/lib/auth/rbac.js';
+import type { Permission } from './src/lib/auth/rbac.js';
+import { RateLimiter } from './src/lib/auth/rateLimit.js';
+import { SecurityAuditLog } from './src/lib/auth/securityLog.js';
+import { parseCookieHeader } from './src/lib/auth/cookies.js';
+
+declare global {
+  // eslint-disable-next-line @typescript-eslint/no-namespace
+  namespace Express {
+    interface Request {
+      auth?: Session | null;
+    }
+  }
+}
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -110,6 +127,13 @@ const ReopenBodySchema = z.object({
   reopenedBy: z.string().min(1).optional(),
   role: RoleSchema.optional(),
 });
+const LoginBodySchema = z.object({
+  email: z.email(),
+  password: z.string().min(1),
+});
+const RoleUpdateBodySchema = z.object({
+  role: z.enum(['admin', 'technician']),
+});
 
 function validateBody(schema: z.ZodType, body: unknown): { data?: any; error?: string } {
   const parsed = schema.safeParse(body ?? {});
@@ -140,29 +164,140 @@ if (geminiApiKey) {
 const evidenceStore = new EvidenceStore();
 const challengeStore = new ChallengeStore();
 
+// =================== AUTHENTICATION & RBAC ===================
+// Server-side sessions + scrypt password hashing + an explicit permission matrix.
+// Staff accounts are seeded from environment variables; no credentials are
+// hardcoded and no client-supplied role flag unlocks a privileged action.
+const COOKIE_NAME = 'cc_session';
+const IS_PRODUCTION = process.env.NODE_ENV === 'production';
+
+const users = new UserStore();
+const sessions = new SessionStore();
+const securityLog = new SecurityAuditLog();
+const loginIpLimiter = new RateLimiter(100, 15 * 60 * 1000);
+const loginAccountLimiter = new RateLimiter(5, 15 * 60 * 1000);
+
+function seedStaffUsers(): void {
+  const adminEmail = process.env.ADMIN_EMAIL?.trim();
+  if (adminEmail && (process.env.ADMIN_PASSWORD || process.env.ADMIN_PASSWORD_HASH)) {
+    users.addFromEnv({
+      id: 'staff-admin-1',
+      name: process.env.ADMIN_NAME?.trim() || 'Campus Warden',
+      email: adminEmail,
+      role: 'admin',
+      password: process.env.ADMIN_PASSWORD,
+      passwordHash: process.env.ADMIN_PASSWORD_HASH,
+    });
+  } else {
+    console.warn(
+      '[CampusCare] Admin authentication is NOT configured. Set ADMIN_EMAIL plus ADMIN_PASSWORD (or ADMIN_PASSWORD_HASH) to enable the Admin / Warden sign-in.'
+    );
+  }
+
+  const techEmail = process.env.TECHNICIAN_EMAIL?.trim();
+  if (techEmail && (process.env.TECHNICIAN_PASSWORD || process.env.TECHNICIAN_PASSWORD_HASH)) {
+    users.addFromEnv({
+      id: 'staff-tech-1',
+      name: process.env.TECHNICIAN_NAME?.trim() || 'Maintenance Technician',
+      email: techEmail,
+      role: 'technician',
+      department: process.env.TECHNICIAN_DEPARTMENT?.trim() || undefined,
+      password: process.env.TECHNICIAN_PASSWORD,
+      passwordHash: process.env.TECHNICIAN_PASSWORD_HASH,
+    });
+  }
+}
+seedStaffUsers();
+
+function clientIp(req: Request): string {
+  const forwarded = req.header('x-forwarded-for');
+  const ip = forwarded ? forwarded.split(',')[0] : req.ip || req.socket.remoteAddress || 'unknown';
+  return String(ip).trim();
+}
+
+function setSessionCookie(res: Response, session: Session): void {
+  res.cookie(COOKIE_NAME, session.id, {
+    httpOnly: true,
+    sameSite: 'strict',
+    secure: IS_PRODUCTION,
+    path: '/',
+    maxAge: sessions.idleTtlMs,
+  });
+}
+
+function clearSessionCookie(res: Response): void {
+  res.clearCookie(COOKIE_NAME, { httpOnly: true, sameSite: 'strict', secure: IS_PRODUCTION, path: '/' });
+}
+
+// Resolve the session (if any) on every request and renew the idle window.
+app.use((req: Request, res: Response, next: NextFunction) => {
+  const token = parseCookieHeader(req.headers.cookie)[COOKIE_NAME];
+  const session = token ? sessions.get(token) : null;
+  req.auth = session;
+  if (session) setSessionCookie(res, session);
+  next();
+});
+
+function requireAuth(req: Request, res: Response, next: NextFunction) {
+  if (!req.auth) return res.status(401).json({ error: 'Authentication required' });
+  return next();
+}
+
+/** Authenticated + permission check, with optional CSRF enforcement for mutations. */
+function requirePermission(permission: Permission, opts: { csrf?: boolean } = {}) {
+  return (req: Request, res: Response, next: NextFunction) => {
+    if (!req.auth) return res.status(401).json({ error: 'Authentication required' });
+    if (!can(req.auth.user.role, permission)) {
+      securityLog.record({
+        actor: req.auth.user.email,
+        role: req.auth.user.role,
+        action: 'access_denied',
+        detail: `${req.method} ${req.originalUrl} (missing ${permission})`,
+        ip: clientIp(req),
+      });
+      return res.status(403).json({ error: 'Insufficient permissions' });
+    }
+    if (opts.csrf && !sessions.csrfMatches(req.auth, req.header('x-csrf-token'))) {
+      return res.status(403).json({ error: 'Invalid or missing CSRF token' });
+    }
+    return next();
+  };
+}
+
+/** Enforce CSRF only for authenticated (cookie-bearing) state changes. */
+function csrfGuardIfAuthenticated(req: Request, res: Response, next: NextFunction) {
+  if (req.auth && !sessions.csrfMatches(req.auth, req.header('x-csrf-token'))) {
+    return res.status(403).json({ error: 'Invalid or missing CSRF token' });
+  }
+  return next();
+}
+
 /**
- * Resolve the submitting actor. This demo has no authentication service, so an
- * actor header is preferred and the request body is a documented fallback.
- * `technicianName` is never trusted for authorization or audit decisions.
+ * Resolve the effective actor. A real session is authoritative and can never be
+ * downgraded by client input. Without a session the client may only claim the
+ * low-privilege demo roles (student/technician) — `admin` always requires a
+ * valid session, so privileged actions cannot be unlocked from the browser.
  */
 function resolveActor(
   req: Request,
   fallbackName?: string,
   fallbackRole?: string
 ): { name: string; role: UserRole } {
+  if (req.auth) {
+    return { name: req.auth.user.name, role: req.auth.user.role };
+  }
   const headerRole = req.header('x-actor-role');
   const headerName = req.header('x-actor-name');
-  const candidateRole = headerRole || fallbackRole || 'student';
-  const role: UserRole = (['student', 'technician', 'admin'] as const).includes(candidateRole as UserRole)
-    ? (candidateRole as UserRole)
-    : 'student';
+  const requested = headerRole || fallbackRole || 'student';
+  const role: UserRole = requested === 'technician' ? 'technician' : 'student';
   return { name: headerName || fallbackName || 'Unknown Actor', role };
 }
 
-/** Minimal actor gate for evidence reads. Not a substitute for real auth. */
+/** Evidence reads require a session or an explicit low-privilege demo actor. */
 function requireActor(req: Request, res: Response, next: NextFunction) {
-  const role = req.header('x-actor-role') || (req.query.role as string | undefined);
-  if (!role || !(['student', 'technician', 'admin'] as const).includes(role as UserRole)) {
+  const demoRole = req.header('x-actor-role') || (req.query.role as string | undefined);
+  const allowed = Boolean(req.auth) || demoRole === 'student' || demoRole === 'technician';
+  if (!allowed) {
     return res.status(401).json({ error: 'Actor role required to access evidence' });
   }
   return next();
@@ -635,45 +770,59 @@ app.post('/api/tickets', async (req: Request, res: Response) => {
   return res.status(201).json(newTicket);
 });
 
-// 5. Assign ticket to technician
-app.put('/api/tickets/:id/assign', (req: Request, res: Response) => {
-  const ticketId = String(req.params.id);
-  const ticket = tickets.get(ticketId);
-  if (!ticket) return res.status(404).json({ error: 'Ticket not found' });
+// 5. Assign / reassign a work order (admin only; real session required).
+app.put(
+  '/api/tickets/:id/assign',
+  requirePermission('assign:workorder', { csrf: true }),
+  (req: Request, res: Response) => {
+    const ticketId = String(req.params.id);
+    const ticket = tickets.get(ticketId);
+    if (!ticket) return res.status(404).json({ error: 'Ticket not found' });
 
-  const v = validateBody(AssignBodySchema, req.body);
-  if (v.error) return res.status(400).json({ error: v.error });
-  const { technicianName, department, actorName, actorRole } = v.data;
+    const v = validateBody(AssignBodySchema, req.body);
+    if (v.error) return res.status(400).json({ error: v.error });
+    const { technicianName, department } = v.data;
 
-  // Validate state transition policy (missing role defaults to least-privilege 'student')
-  const validation = validateStateTransition(ticket, 'assigned', {
-    actorName: actorName || 'Admin Dispatcher',
-    actorRole: (actorRole as UserRole) || 'student',
-  });
+    // The acting identity always comes from the server-side session.
+    const actor = req.auth!.user;
+    const validation = validateStateTransition(ticket, 'assigned', {
+      actorName: actor.name,
+      actorRole: actor.role,
+    });
 
-  if (!validation.allowed) {
-    return res.status(403).json({ error: validation.reason });
+    if (!validation.allowed) {
+      return res.status(403).json({ error: validation.reason });
+    }
+
+    const previousTechnician = ticket.assignedTechnician;
+    if (department) ticket.department = department;
+    if (technicianName) ticket.assignedTechnician = technicianName;
+
+    ticket.status = 'assigned';
+    ticket.updatedAt = new Date().toISOString();
+
+    ticket.auditTrail.push({
+      id: `evt-${Date.now()}`,
+      timestamp: ticket.updatedAt,
+      actor: actor.name,
+      role: actor.role,
+      action: `${previousTechnician ? 'Reassigned' : 'Assigned'} to ${ticket.assignedTechnician || 'Staff'} (${ticket.department})`,
+    });
+
+    securityLog.record({
+      actor: actor.email,
+      role: actor.role,
+      action: previousTechnician ? 'work_order_reassigned' : 'work_order_assigned',
+      detail: `${ticket.id} → ${ticket.department}${ticket.assignedTechnician ? ` / ${ticket.assignedTechnician}` : ''}`,
+      ip: clientIp(req),
+    });
+
+    return res.json(ticket);
   }
-
-  if (department) ticket.department = department;
-  if (technicianName) ticket.assignedTechnician = technicianName;
-
-  ticket.status = 'assigned';
-  ticket.updatedAt = new Date().toISOString();
-
-  ticket.auditTrail.push({
-    id: `evt-${Date.now()}`,
-    timestamp: ticket.updatedAt,
-    actor: actorName || 'Admin Dispatcher',
-    role: (actorRole as UserRole) || 'student',
-    action: `Assigned to ${ticket.assignedTechnician || 'Staff'} (${ticket.department})`,
-  });
-
-  return res.json(ticket);
-});
+);
 
 // 6. Update ticket status (e.g. Technician starts work)
-app.put('/api/tickets/:id/status', (req: Request, res: Response) => {
+app.put('/api/tickets/:id/status', csrfGuardIfAuthenticated, (req: Request, res: Response) => {
   const ticketId = String(req.params.id);
   const ticket = tickets.get(ticketId);
   if (!ticket) return res.status(404).json({ error: 'Ticket not found' });
@@ -681,11 +830,12 @@ app.put('/api/tickets/:id/status', (req: Request, res: Response) => {
   const v = validateBody(StatusBodySchema, req.body);
   if (v.error) return res.status(400).json({ error: v.error });
   const { status, actor, role, notes } = v.data;
+  const effective = resolveActor(req, actor, role);
 
-  // Validate state transition policy
+  // Validate state transition policy (a client-asserted role is capped below admin).
   const validation = validateStateTransition(ticket, status as TicketStatus, {
-    actorName: actor || 'Staff',
-    actorRole: (role as UserRole) || 'student',
+    actorName: effective.name,
+    actorRole: effective.role,
   });
 
   if (!validation.allowed) {
@@ -698,8 +848,8 @@ app.put('/api/tickets/:id/status', (req: Request, res: Response) => {
   ticket.auditTrail.push({
     id: `evt-${Date.now()}`,
     timestamp: ticket.updatedAt,
-    actor: actor || 'Technician',
-    role: role || 'technician',
+    actor: effective.name,
+    role: effective.role,
     action: `Status updated to ${status.replace('_', ' ').toUpperCase()}`,
     notes,
   });
@@ -708,7 +858,7 @@ app.put('/api/tickets/:id/status', (req: Request, res: Response) => {
 });
 
 // 7. Complete repair & trigger AI Before/After Verification
-app.post('/api/tickets/:id/repair', async (req: Request, res: Response) => {
+app.post('/api/tickets/:id/repair', csrfGuardIfAuthenticated, async (req: Request, res: Response) => {
   const ticketId = String(req.params.id);
   const ticket = tickets.get(ticketId);
   if (!ticket) return res.status(404).json({ error: 'Ticket not found' });
@@ -914,7 +1064,7 @@ app.post('/api/tickets/:id/repair', async (req: Request, res: Response) => {
 });
 
 // 7b. Issue a one-time repair-session challenge (technician/admin only)
-app.post('/api/tickets/:id/repair/challenge', (req: Request, res: Response) => {
+app.post('/api/tickets/:id/repair/challenge', csrfGuardIfAuthenticated, (req: Request, res: Response) => {
   const ticketId = String(req.params.id);
   const ticket = tickets.get(ticketId);
   if (!ticket) return res.status(404).json({ error: 'Ticket not found' });
@@ -952,19 +1102,23 @@ app.get('/api/evidence/:id/raw', requireActor, (req: Request, res: Response) => 
 
 
 // 8. Confirm resolution (Student or Admin)
-app.put('/api/tickets/:id/resolve', (req: Request, res: Response) => {
+app.put('/api/tickets/:id/resolve', csrfGuardIfAuthenticated, (req: Request, res: Response) => {
   const ticketId = String(req.params.id);
   const ticket = tickets.get(ticketId);
   if (!ticket) return res.status(404).json({ error: 'Ticket not found' });
 
   const v = validateBody(ResolveBodySchema, req.body);
   if (v.error) return res.status(400).json({ error: v.error });
-  const { confirmedBy, role, rating, comment } = v.data;
+  const { confirmedBy, rating, comment } = v.data;
+
+  // Identity is session-derived; a client cannot assert the admin role here.
+  const effective = resolveActor(req, confirmedBy || ticket.reporterName);
+  const isAdmin = req.auth?.user.role === 'admin';
 
   // Validate state transition policy
   const validation = validateStateTransition(ticket, 'resolved', {
-    actorName: confirmedBy || ticket.reporterName,
-    actorRole: (role as UserRole) || 'student',
+    actorName: effective.name,
+    actorRole: effective.role,
   });
 
   if (!validation.allowed) {
@@ -978,7 +1132,7 @@ app.put('/api/tickets/:id/resolve', (req: Request, res: Response) => {
     ticket.latestVerification?.riskLevel ? { level: ticket.latestVerification.riskLevel } : undefined,
     ticket.latestVerification,
     ticket.isSafetyCritical,
-    (role as UserRole) === 'admin'
+    isAdmin
   );
   if (!gate.allowed) {
     return res.status(403).json({ error: gate.reason });
@@ -987,7 +1141,7 @@ app.put('/api/tickets/:id/resolve', (req: Request, res: Response) => {
   ticket.status = 'resolved';
   ticket.updatedAt = new Date().toISOString();
   ticket.resolutionFeedback = {
-    confirmedBy: confirmedBy || ticket.reporterName,
+    confirmedBy: effective.name,
     confirmedAt: ticket.updatedAt,
     rating: rating || 5,
     comment: comment || 'Issue verified and confirmed.',
@@ -995,36 +1149,51 @@ app.put('/api/tickets/:id/resolve', (req: Request, res: Response) => {
 
   if (ticket.latestVerification) {
     ticket.latestVerification.decision = 'approved';
-    ticket.latestVerification.reviewedBy = confirmedBy || ticket.reporterName;
+    ticket.latestVerification.reviewedBy = effective.name;
     ticket.latestVerification.reviewedAt = ticket.updatedAt;
   }
 
   ticket.auditTrail.push({
     id: `evt-${Date.now()}`,
     timestamp: ticket.updatedAt,
-    actor: confirmedBy || ticket.reporterName,
-    role: (role as UserRole) || 'student',
-    action: 'Resolution Confirmed & Signed Off',
+    actor: effective.name,
+    role: effective.role,
+    action: isAdmin ? 'Resolution Confirmed by Administrator' : 'Resolution Confirmed & Signed Off',
     notes: comment ? `Rating: ${rating || 5}/5. Note: "${comment}"` : 'Physical repair confirmed in person.',
   });
+
+  if (isAdmin && (ticket.isSafetyCritical || ticket.aiAssessment.needsHumanReview || ticket.latestVerification?.riskLevel === 'high')) {
+    securityLog.record({
+      actor: req.auth!.user.email,
+      role: req.auth!.user.role,
+      action: 'resolution_admin_override',
+      detail: `${ticket.id} (${[
+        ticket.isSafetyCritical ? 'safety-critical' : '',
+        ticket.aiAssessment.needsHumanReview ? 'human-review' : '',
+      ].filter(Boolean).join(', ') || 'restricted resolution'})`,
+      ip: clientIp(req),
+    });
+  }
 
   return res.json(ticket);
 });
 
 // 9. Reopen ticket (Student or Admin)
-app.put('/api/tickets/:id/reopen', (req: Request, res: Response) => {
+app.put('/api/tickets/:id/reopen', csrfGuardIfAuthenticated, (req: Request, res: Response) => {
   const ticketId = String(req.params.id);
   const ticket = tickets.get(ticketId);
   if (!ticket) return res.status(404).json({ error: 'Ticket not found' });
 
   const v = validateBody(ReopenBodySchema, req.body);
   if (v.error) return res.status(400).json({ error: v.error });
-  const { reason, reopenedBy, role } = v.data;
+  const { reason, reopenedBy } = v.data;
+
+  const effective = resolveActor(req, reopenedBy || ticket.reporterName);
 
   // Validate state transition
   const validation = validateStateTransition(ticket, 'reopened', {
-    actorName: reopenedBy || ticket.reporterName,
-    actorRole: (role as UserRole) || 'student',
+    actorName: effective.name,
+    actorRole: effective.role,
   });
 
   if (!validation.allowed) {
@@ -1037,15 +1206,15 @@ app.put('/api/tickets/:id/reopen', (req: Request, res: Response) => {
 
   if (ticket.latestVerification) {
     ticket.latestVerification.decision = 'rejected';
-    ticket.latestVerification.reviewedBy = reopenedBy || ticket.reporterName;
+    ticket.latestVerification.reviewedBy = effective.name;
     ticket.latestVerification.reviewedAt = ticket.updatedAt;
   }
 
   ticket.auditTrail.push({
     id: `evt-${Date.now()}`,
     timestamp: ticket.updatedAt,
-    actor: reopenedBy || ticket.reporterName,
-    role: (role as UserRole) || 'student',
+    actor: effective.name,
+    role: effective.role,
     action: 'Ticket Reopened',
     notes: `Problem persists: "${reason}". Returned to ${ticket.department} queue (Previous evidence preserved).`,
   });
@@ -1053,8 +1222,11 @@ app.put('/api/tickets/:id/reopen', (req: Request, res: Response) => {
   return res.json(ticket);
 });
 
-// 10. Department Queues & Technician stats
+// 10. Department Queues & Technician stats (staff only)
 app.get('/api/departments', (req: Request, res: Response) => {
+  if (!can(resolveActor(req).role, 'start:work')) {
+    return res.status(403).json({ error: 'Staff access required' });
+  }
   const departments: Department[] = ['Plumbing', 'Electrical', 'Cleaning', 'Carpentry', 'HVAC', 'General'];
   const allTickets = Array.from(tickets.values());
 
@@ -1077,8 +1249,8 @@ app.get('/api/departments', (req: Request, res: Response) => {
   return res.json(departmentData);
 });
 
-// 11. Admin Metrics & Analytics
-app.get('/api/analytics', (req: Request, res: Response) => {
+// 11. Admin Metrics & Analytics (admin only)
+app.get('/api/analytics', requirePermission('view:admin'), (req: Request, res: Response) => {
   const allTickets = Array.from(tickets.values());
   const total = allTickets.length;
   const active = allTickets.filter((t) => t.status !== 'resolved').length;
@@ -1099,14 +1271,115 @@ app.get('/api/analytics', (req: Request, res: Response) => {
   });
 });
 
-// 12. Reset demo state to initial 90-second demo walkthrough
-app.post('/api/demo/reset', (req: Request, res: Response) => {
+// 12. Reset demo state to initial 90-second demo walkthrough (admin only)
+app.post('/api/demo/reset', requirePermission('reset:demo', { csrf: true }), (req: Request, res: Response) => {
   tickets = new Map(initialTickets.map((t) => [t.id, JSON.parse(JSON.stringify(t))]));
   ticketCounter = 1045;
   evidenceStore.reset();
   challengeStore.reset();
+  securityLog.record({
+    actor: req.auth!.user.email,
+    role: req.auth!.user.role,
+    action: 'demo_state_reset',
+    ip: clientIp(req),
+  });
   return res.json({ msg: 'Demo state reset successfully', total: tickets.size });
 });
+
+// =================== AUTH ROUTES ===================
+
+// Sign in with institutional email + password. Generic errors avoid account enumeration.
+app.post('/api/auth/login', (req: Request, res: Response) => {
+  const v = validateBody(LoginBodySchema, req.body);
+  if (v.error) return res.status(400).json({ error: v.error });
+  const { email, password } = v.data;
+  const ip = clientIp(req);
+
+  const ipCheck = loginIpLimiter.check(`ip:${ip}`);
+  const accountCheck = loginAccountLimiter.check(`acct:${email.toLowerCase()}`);
+  if (!ipCheck.allowed || !accountCheck.allowed) {
+    res.setHeader('Retry-After', String(Math.max(ipCheck.retryAfterSec, accountCheck.retryAfterSec)));
+    securityLog.record({ actor: email.toLowerCase(), role: 'anonymous', action: 'login_rate_limited', ip });
+    return res.status(429).json({ error: 'Too many sign-in attempts. Please try again later.' });
+  }
+
+  const user = users.verifyCredentials(email, password);
+  if (!user) {
+    securityLog.record({ actor: email.toLowerCase(), role: 'anonymous', action: 'login_failed', ip });
+    return res.status(401).json({ error: 'Invalid email or password' });
+  }
+
+  // Clear the per-account counter on success; the per-IP counter stays as a coarse bound.
+  loginAccountLimiter.reset(`acct:${email.toLowerCase()}`);
+  const session = sessions.create(toSessionUser(user));
+  setSessionCookie(res, session);
+  securityLog.record({ actor: user.email, role: user.role, action: 'login_success', ip });
+  return res.json({
+    user: toPublicUser(user),
+    csrfToken: session.csrfToken,
+    expiresAt: new Date(session.expiresAt).toISOString(),
+  });
+});
+
+// Current session — the client uses this to gate protected portals on load.
+app.get('/api/auth/session', (req: Request, res: Response) => {
+  if (!req.auth) return res.status(401).json({ error: 'No active session' });
+  return res.json({
+    user: toPublicUser(req.auth.user),
+    csrfToken: req.auth.csrfToken,
+    expiresAt: new Date(req.auth.expiresAt).toISOString(),
+  });
+});
+
+// Logout invalidates the server-side session and clears the cookie.
+app.post('/api/auth/logout', requireAuth, csrfGuardIfAuthenticated, (req: Request, res: Response) => {
+  const { user, id } = req.auth!;
+  sessions.destroy(id);
+  clearSessionCookie(res);
+  securityLog.record({ actor: user.email, role: user.role, action: 'logout', ip: clientIp(req) });
+  return res.status(204).end();
+});
+
+// =================== ADMIN ROUTES (admin only) ===================
+
+// Sensitive security / administrative audit history.
+app.get('/api/admin/audit', requirePermission('view:audit'), (req: Request, res: Response) => {
+  const limit = Math.min(Number(req.query.limit) || 50, 200);
+  return res.json(securityLog.list(limit));
+});
+
+// Staff directory. Password hashes never leave the server.
+app.get('/api/admin/users', requirePermission('change:role'), (_req: Request, res: Response) => {
+  return res.json(users.list().map(toPublicUser));
+});
+
+// Change a staff member's role. Least privilege; cannot demote your own account.
+app.put(
+  '/api/admin/users/:id/role',
+  requirePermission('change:role', { csrf: true }),
+  (req: Request, res: Response) => {
+    const v = validateBody(RoleUpdateBodySchema, req.body);
+    if (v.error) return res.status(400).json({ error: v.error });
+    const target = users.findById(String(req.params.id));
+    if (!target) return res.status(404).json({ error: 'Staff account not found' });
+    if (target.id === req.auth!.user.id && v.data.role !== 'admin') {
+      return res.status(400).json({ error: 'You cannot remove your own administrator access' });
+    }
+    const before = target.role;
+    if (before === v.data.role) return res.json(toPublicUser(target));
+    users.setRole(target.id, v.data.role);
+    // A demotion takes effect immediately: drop the target's live sessions.
+    if (v.data.role !== 'admin') sessions.destroyAllForUser(target.id);
+    securityLog.record({
+      actor: req.auth!.user.email,
+      role: req.auth!.user.role,
+      action: 'staff_role_changed',
+      detail: `${target.email}: ${before} → ${v.data.role}`,
+      ip: clientIp(req),
+    });
+    return res.json(toPublicUser(target));
+  }
+);
 
 // Vite Middleware for Development / Static file serving for Production
 async function startServer() {

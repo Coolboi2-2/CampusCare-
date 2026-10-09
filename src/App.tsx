@@ -1,15 +1,17 @@
 import React, { useState, useEffect } from 'react';
-import { UserRole, User, Ticket, Department } from './types';
+import { UserRole, User, Ticket, Department, AuthSession } from './types';
 import { Navbar } from './components/Navbar';
 import { StudentPortal } from './components/StudentPortal';
 import { MaintenancePortal } from './components/MaintenancePortal';
 import { AdminDashboard } from './components/AdminDashboard';
+import { StaffSignIn } from './components/StaffSignIn';
 import { StudentReportModal } from './components/StudentReportModal';
 import { TicketDetailModal } from './components/TicketDetailModal';
 import { RepairCompletionModal } from './components/RepairCompletionModal';
 import { StudentResolutionModal } from './components/StudentResolutionModal';
 import { DemoWalkthroughModal } from './components/DemoWalkthroughModal';
-import { Building2, Sparkles, CheckCircle2, AlertTriangle, RefreshCw } from 'lucide-react';
+import { apiFetch } from './lib/api';
+import { Building2, AlertTriangle, RefreshCw } from 'lucide-react';
 
 export function App() {
   const [currentRole, setCurrentRole] = useState<UserRole>('student');
@@ -40,6 +42,10 @@ export function App() {
 
   const [isDemoWalkthroughOpen, setIsDemoWalkthroughOpen] = useState(false);
 
+  // Staff authentication session (admin / technician). Null = signed out.
+  const [staffSession, setStaffSession] = useState<AuthSession | null>(null);
+  const [sessionChecked, setSessionChecked] = useState(false);
+
   // Load tickets from server
   const fetchTickets = async () => {
     setLoadError(false);
@@ -58,6 +64,16 @@ export function App() {
 
   useEffect(() => {
     fetchTickets();
+    (async () => {
+      try {
+        const res = await apiFetch('/api/auth/session');
+        if (res.ok) setStaffSession((await res.json()) as AuthSession);
+      } catch {
+        /* no active staff session */
+      } finally {
+        setSessionChecked(true);
+      }
+    })();
   }, []);
 
   // Update user representation when role toggles
@@ -89,11 +105,37 @@ export function App() {
     }
   };
 
-  // Reset demo state
+  // Establish the authenticated staff session and route to the matching portal.
+  const handleSignedIn = (session: AuthSession) => {
+    setStaffSession(session);
+    setCurrentRole(session.user.role);
+    setCurrentUser({
+      id: session.user.id,
+      name: session.user.name,
+      email: session.user.email,
+      role: session.user.role,
+      department: session.user.department as Department | undefined,
+    });
+  };
+
+  const handleSignOut = async () => {
+    try {
+      if (staffSession) {
+        await apiFetch('/api/auth/logout', { method: 'POST', csrfToken: staffSession.csrfToken });
+      }
+    } catch {
+      /* network failure on logout still clears local state below */
+    }
+    setStaffSession(null);
+    if (currentRole === 'admin') handleRoleChange('student');
+  };
+
+  // Reset demo state (admin only)
   const handleResetDemo = async () => {
+    if (staffSession?.user.role !== 'admin') return;
     setIsResetting(true);
     try {
-      await fetch('/api/demo/reset', { method: 'POST' });
+      await apiFetch('/api/demo/reset', { method: 'POST', csrfToken: staffSession.csrfToken });
       await fetchTickets();
     } catch (e) {
       console.error(e);
@@ -105,9 +147,9 @@ export function App() {
   // Start work on ticket
   const handleStartWork = async (ticketId: string) => {
     try {
-      const res = await fetch(`/api/tickets/${ticketId}/status`, {
+      const res = await apiFetch(`/api/tickets/${ticketId}/status`, {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
+        csrfToken: staffSession?.csrfToken,
         body: JSON.stringify({
           status: 'in_progress',
           actor: currentUser.name,
@@ -125,13 +167,14 @@ export function App() {
     }
   };
 
-  // Reassign department by admin
+  // Reassign department by admin (requires an authenticated admin session)
   const handleReassignTicket = async (ticket: Ticket, newDept: Department) => {
+    if (staffSession?.user.role !== 'admin') return;
     try {
-      const res = await fetch(`/api/tickets/${ticket.id}/assign`, {
+      const res = await apiFetch(`/api/tickets/${ticket.id}/assign`, {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ department: newDept, actorName: currentUser.name, actorRole: currentRole }),
+        csrfToken: staffSession.csrfToken,
+        body: JSON.stringify({ department: newDept }),
       });
       if (res.ok) {
         const updated = await res.json();
@@ -158,6 +201,8 @@ export function App() {
         currentRole={currentRole}
         setCurrentRole={handleRoleChange}
         currentUser={currentUser}
+        staffSession={staffSession}
+        onSignOut={handleSignOut}
         onOpenReport={() => setIsReportModalOpen(true)}
         onOpenDemoWalkthrough={() => setIsDemoWalkthroughOpen(true)}
         onResetDemo={handleResetDemo}
@@ -172,8 +217,8 @@ export function App() {
           </div>
         ) : loadError ? (
           <div className="py-24 flex flex-col items-center justify-center text-center gap-3">
-            <div className="w-12 h-12 rounded-card bg-rose-50 border border-rose-200 flex items-center justify-center">
-              <AlertTriangle className="w-6 h-6 text-rose-600" />
+            <div className="w-12 h-12 rounded-card bg-critical-50 border border-critical-200 flex items-center justify-center">
+              <AlertTriangle className="w-6 h-6 text-critical-600" />
             </div>
             <h2 className="text-sm font-bold text-slate-900">Could not reach the CampusCare server</h2>
             <p className="text-xs text-slate-500 max-w-md">
@@ -225,17 +270,28 @@ export function App() {
               />
             )}
 
-            {currentRole === 'admin' && (
-              <AdminDashboard
-                tickets={tickets}
-                onSelectTicket={(t) => {
-                  setSelectedTicket(t);
-                  setIsDetailModalOpen(true);
-                }}
-                onReassignTicket={handleReassignTicket}
-                onRefresh={fetchTickets}
-              />
-            )}
+            {currentRole === 'admin' &&
+              (!staffSession || staffSession.user.role !== 'admin' ? (
+                sessionChecked ? (
+                  <StaffSignIn expectedRole="admin" onSignedIn={handleSignedIn} />
+                ) : (
+                  <div className="py-24 flex flex-col items-center justify-center text-slate-500 gap-3">
+                    <div className="w-8 h-8 rounded-full border-4 border-brand-600 border-t-transparent animate-spin" />
+                    <span className="text-xs font-semibold">Checking administrator session…</span>
+                  </div>
+                )
+              ) : (
+                <AdminDashboard
+                  tickets={tickets}
+                  csrfToken={staffSession.csrfToken}
+                  onSelectTicket={(t) => {
+                    setSelectedTicket(t);
+                    setIsDetailModalOpen(true);
+                  }}
+                  onReassignTicket={handleReassignTicket}
+                  onRefresh={fetchTickets}
+                />
+              ))}
           </>
         )}
       </main>

@@ -27,8 +27,47 @@
   --color-accent-600: #7c3aed;
   --color-accent-700: #6d28d9;
 
+  /* Navigation & administrative identity — deep navy (#172554). */
+  --color-navy-50: #eef2fb;
+  --color-navy-100: #dbe3f5;
+  --color-navy-200: #b9c6e9;
+  --color-navy-300: #8ea2d8;
+  --color-navy-400: #6076c0;
+  --color-navy-500: #3f55a6;
+  --color-navy-600: #2f4389;
+  --color-navy-700: #263771;
+  --color-navy-800: #1e2d5e;
+  --color-navy-900: #172554;
+
+  /* Semantic status — success (#0f766e), warning (#b45309), critical (#be1238). */
+  --color-success-50: #f0fdfa;
+  --color-success-100: #ccfbf1;
+  --color-success-200: #99f6e4;
+  --color-success-500: #14b8a6;
+  --color-success-600: #0f766e;
+  --color-success-700: #115e59;
+  --color-success-800: #134e4a;
+
+  --color-warning-50: #fffbeb;
+  --color-warning-100: #fef3c7;
+  --color-warning-200: #fde68a;
+  --color-warning-400: #fbbf24;
+  --color-warning-500: #f59e0b;
+  --color-warning-600: #b45309;
+  --color-warning-700: #92400e;
+  --color-warning-800: #78350f;
+
+  --color-critical-50: #fff1f2;
+  --color-critical-100: #ffe4e6;
+  --color-critical-200: #fecdd3;
+  --color-critical-300: #fda4af;
+  --color-critical-500: #f43f5e;
+  --color-critical-600: #be1238;
+  --color-critical-700: #9f1239;
+  --color-critical-800: #881337;
+
   /* Surfaces */
-  --color-canvas: #f5f6fa;
+  --color-canvas: #f3f5f9;
   --color-surface: #ffffff;
   --color-surface-muted: #f8fafc;
   --color-line: #e7e9f0;

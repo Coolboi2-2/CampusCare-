@@ -237,7 +237,7 @@ export const StudentReportModal: React.FC<StudentReportModalProps> = ({
             {error && (
               <div
                 role="alert"
-                className="p-3 bg-rose-50 border border-rose-200 text-rose-700 text-xs rounded-control flex items-center gap-2"
+                className="p-3 bg-critical-50 border border-critical-200 text-critical-700 text-xs rounded-control flex items-center gap-2"
               >
                 <AlertCircle className="w-4 h-4 shrink-0" />
                 <span>{error}</span>
@@ -260,7 +260,7 @@ export const StudentReportModal: React.FC<StudentReportModalProps> = ({
                 htmlFor="report-description"
                 className="block text-xs font-semibold text-slate-700 mb-1"
               >
-                Natural language description <span className="text-rose-500">*</span>
+                Natural language description <span className="text-critical-500">*</span>
               </label>
               <textarea
                 id="report-description"
@@ -271,11 +271,11 @@ export const StudentReportModal: React.FC<StudentReportModalProps> = ({
                 aria-invalid={descriptionMissing}
                 aria-describedby="report-description-help"
                 placeholder="e.g. Water is leaking under the sink washbasin whenever the tap runs..."
-                className={`${inputClass} ${descriptionMissing ? 'border-rose-300 ring-1 ring-rose-200' : ''}`}
+                className={`${inputClass} ${descriptionMissing ? 'border-critical-300 ring-1 ring-critical-200' : ''}`}
               />
               <p
                 id="report-description-help"
-                className={`text-[11px] mt-1 ${descriptionMissing ? 'text-rose-600 font-medium' : 'text-slate-500'}`}
+                className={`text-[11px] mt-1 ${descriptionMissing ? 'text-critical-600 font-medium' : 'text-slate-500'}`}
               >
                 {descriptionMissing
                   ? 'A description is required before submitting.'
@@ -438,7 +438,7 @@ export const StudentReportModal: React.FC<StudentReportModalProps> = ({
                 </div>
 
                 {aiMeta?.provider !== 'gemma' && aiMeta && (
-                  <p className="flex items-start gap-1.5 text-[11px] text-amber-800 bg-amber-50 border border-amber-200 rounded-control px-2.5 py-1.5 mb-2">
+                  <p className="flex items-start gap-1.5 text-[11px] text-warning-800 bg-warning-50 border border-warning-200 rounded-control px-2.5 py-1.5 mb-2">
                     <Info className="w-3.5 h-3.5 shrink-0 mt-0.5" />
                     <span>
                       Fallback rules produced this recommendation. No live model output was used.
@@ -455,7 +455,7 @@ export const StudentReportModal: React.FC<StudentReportModalProps> = ({
                       </span>
                       <PriorityBadge priority={aiAssessment.priority} />
                       {aiAssessment.needsHumanReview && (
-                        <span className="inline-flex items-center gap-1 text-[10px] font-bold uppercase px-2 py-0.5 rounded-full bg-rose-100 text-rose-700 border border-rose-200">
+                        <span className="inline-flex items-center gap-1 text-[10px] font-bold uppercase px-2 py-0.5 rounded-full bg-critical-100 text-critical-700 border border-critical-200">
                           <ShieldAlert className="w-3 h-3" />
                           Human review
                         </span>
@@ -474,8 +474,8 @@ export const StudentReportModal: React.FC<StudentReportModalProps> = ({
                     </div>
 
                     {aiAssessment.reviewReasons.length > 0 && (
-                      <div className="bg-rose-50 p-2.5 rounded-control border border-rose-200 text-rose-800 text-[11px] flex items-start gap-1.5">
-                        <ShieldAlert className="w-3.5 h-3.5 shrink-0 text-rose-600 mt-0.5" />
+                      <div className="bg-critical-50 p-2.5 rounded-control border border-critical-200 text-critical-800 text-[11px] flex items-start gap-1.5">
+                        <ShieldAlert className="w-3.5 h-3.5 shrink-0 text-critical-600 mt-0.5" />
                         <div>
                           <span className="font-bold">Human review flagged: </span>
                           {aiAssessment.reviewReasons.join('; ')}

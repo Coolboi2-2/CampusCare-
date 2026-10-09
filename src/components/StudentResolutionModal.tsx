@@ -80,7 +80,7 @@ export const StudentResolutionModal: React.FC<StudentResolutionModalProps> = ({
           <div className="flex items-center gap-2.5 min-w-0">
             <div
               className={`w-9 h-9 rounded-control flex items-center justify-center shrink-0 ${
-                isConfirm ? 'bg-emerald-50 text-emerald-600' : 'bg-rose-50 text-rose-600'
+                isConfirm ? 'bg-success-50 text-success-600' : 'bg-critical-50 text-critical-600'
               }`}
             >
               {isConfirm ? <CheckCircle2 className="w-5 h-5" /> : <RotateCcw className="w-5 h-5" />}
@@ -117,7 +117,7 @@ export const StudentResolutionModal: React.FC<StudentResolutionModalProps> = ({
                 }}
               />
               <div className="text-xs space-y-0.5 min-w-0">
-                <span className="text-[10px] font-bold text-emerald-700 uppercase tracking-wider block">
+                <span className="text-[10px] font-bold text-success-700 uppercase tracking-wider block">
                   Technician Evidence
                 </span>
                 <p className="text-slate-800 font-medium line-clamp-1">{ticket.workNotes}</p>
@@ -138,7 +138,7 @@ export const StudentResolutionModal: React.FC<StudentResolutionModalProps> = ({
             {error && (
               <div
                 role="alert"
-                className="p-3 bg-rose-50 border border-rose-200 text-rose-700 text-xs rounded-control flex items-center gap-2"
+                className="p-3 bg-critical-50 border border-critical-200 text-critical-700 text-xs rounded-control flex items-center gap-2"
               >
                 <AlertCircle className="w-4 h-4 shrink-0" />
                 <span>{error}</span>
@@ -171,7 +171,7 @@ export const StudentResolutionModal: React.FC<StudentResolutionModalProps> = ({
                         <Star
                           className={`w-6 h-6 ${
                             star <= rating
-                              ? 'text-amber-400 fill-amber-400'
+                              ? 'text-warning-400 fill-warning-400'
                               : 'text-slate-200 fill-slate-100'
                           }`}
                         />
@@ -206,7 +206,7 @@ export const StudentResolutionModal: React.FC<StudentResolutionModalProps> = ({
                   htmlFor="resolution-reopen-reason"
                   className="block text-xs font-semibold text-slate-700 mb-1"
                 >
-                  Reason for Reopening <span className="text-rose-500">*</span>
+                  Reason for Reopening <span className="text-critical-500">*</span>
                 </label>
                 <textarea
                   id="resolution-reopen-reason"
@@ -236,7 +236,7 @@ export const StudentResolutionModal: React.FC<StudentResolutionModalProps> = ({
                 type="submit"
                 disabled={isSubmitting}
                 className={`px-5 py-2.5 rounded-control text-white text-xs font-bold transition-colors flex items-center gap-1.5 disabled:opacity-50 ${
-                  isConfirm ? 'bg-emerald-600 hover:bg-emerald-700' : 'bg-rose-600 hover:bg-rose-700'
+                  isConfirm ? 'bg-success-600 hover:bg-success-700' : 'bg-critical-600 hover:bg-critical-700'
                 }`}
               >
                 {isSubmitting ? (

@@ -2,7 +2,7 @@
 
 > **Report it. Route it. Resolve it. Verify it.**
 
-CampusCare is an AI-powered campus maintenance platform where students report problems using photos and natural language. Gemma 4 helps interpret each report, create a structured work order, recommend the appropriate department, and compare before-and-after repair photos. Staff manage the actual work, while uncertain cases are escalated for human review.
+CampusCare is an AI-powered campus maintenance platform where students report problems using photos and natural language. Gemini 3.8 Flash helps interpret each report, create a structured work order, recommend the appropriate department, and compare before-and-after repair photos. Staff manage the actual work, while uncertain cases are escalated for human review.
 
 ---
 
@@ -10,9 +10,9 @@ CampusCare is an AI-powered campus maintenance platform where students report pr
 
 Unlike traditional ticketing apps that only record complaints:
 1. **Report Naturally**: Students upload a photo and describe the problem in conversational language. No technical fault diagnosis required.
-2. **Understand with AI**: Gemma 4 extracts the issue type, visible observations, suggested priority, and recommended department.
+2. **Understand with AI**: Gemini 3.8 Flash extracts the issue type, visible observations, suggested priority, and recommended department.
 3. **Route & Track**: Deterministic routing rules dispatch tickets to specialized department queues (Plumbing, Electrical, Carpentry, Cleaning, HVAC, General) with complete audit timestamps.
-4. **Verify the Outcome**: Gemma compares original and repair photos, identifies visible changes, detects remaining concerns, and recommends resolution confirmation or human escalation.
+4. **Verify the Outcome**: The model compares original and repair photos, identifies visible changes, detects remaining concerns, and recommends resolution confirmation or human escalation.
 
 ---
 
@@ -42,10 +42,10 @@ Unlike traditional ticketing apps that only record complaints:
 
 Launchable via the **"⚡ 90s Demo Tour"** button in the navigation header:
 1. **0–15s — Report**: Student reports washbasin leak with before photo: *"Water is leaking under the sink washbasin in Oak Hall Room 308."*
-2. **15–30s — Analyze**: CampusCare displays Gemma's observations, suggested category, priority, and recommended Plumbing queue.
+2. **15–30s — Analyze**: CampusCare displays the model's observations, suggested category, priority, and recommended Plumbing queue.
 3. **30–45s — Assign**: Ticket `CC-2026-1042` is routed; technician Marcus Vance accepts the work order.
 4. **45–65s — Repair**: Technician updates status to *In Progress*, repairs the P-trap gasket, and uploads the after-photo.
-5. **65–80s — Verify**: Gemma compares Before and After photos, detects visible changes (*"P-trap seated, cabinet floor dry"*), and calculates 94% confidence.
+5. **65–80s — Verify**: The model compares Before and After photos, detects visible changes (*"P-trap seated, cabinet floor dry"*), and reports evidence quality and remaining concerns.
 6. **80–90s — Resolve**: Student confirms resolution or tests the reopen flow if issues remain.
 
 ---

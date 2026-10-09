@@ -129,7 +129,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
             Verified Resolution Rate
           </span>
           <div className="text-2xl font-extrabold text-emerald-600 mt-1">{resolutionRate}%</div>
-          <span className="text-[10px] text-emerald-600 font-medium">Avg ~3.4h turnaround</span>
+          <span className="text-[10px] text-emerald-600 font-medium">Confirmed by students or admin</span>
         </div>
       </div>
 

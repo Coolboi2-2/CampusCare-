@@ -109,7 +109,7 @@ export function App() {
         body: JSON.stringify({
           status: 'in_progress',
           actor: currentUser.name,
-          role: 'technician',
+          role: currentRole,
           notes: 'Technician arrived at site and commenced maintenance work.',
         }),
       });
@@ -129,7 +129,7 @@ export function App() {
       const res = await fetch(`/api/tickets/${ticket.id}/assign`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ department: newDept }),
+        body: JSON.stringify({ department: newDept, actorName: currentUser.name, actorRole: currentRole }),
       });
       if (res.ok) {
         const updated = await res.json();
@@ -232,7 +232,7 @@ export function App() {
           <div className="flex items-center gap-4 text-slate-400 font-medium">
             <span>Report it • Route it • Resolve it • Verify it</span>
             <span>•</span>
-            <span>Gemma 4 Verification Engine</span>
+            <span>Gemini 3.8 Flash Verification Engine</span>
             <span>•</span>
             <span>MIT License</span>
           </div>
@@ -276,6 +276,7 @@ export function App() {
         isOpen={isRepairModalOpen}
         onClose={() => setIsRepairModalOpen(false)}
         ticket={repairTargetTicket}
+        role={currentRole}
         onRepairCompleted={(updated) => {
           setTickets((prev) => prev.map((t) => (t.id === updated.id ? updated : t)));
           setSelectedTicket(updated);
@@ -288,6 +289,7 @@ export function App() {
         onClose={() => setIsResolutionModalOpen(false)}
         ticket={resolutionTargetTicket}
         mode={resolutionMode}
+        role={currentRole}
         onUpdated={(updated) => {
           setTickets((prev) => prev.map((t) => (t.id === updated.id ? updated : t)));
           setSelectedTicket(updated);

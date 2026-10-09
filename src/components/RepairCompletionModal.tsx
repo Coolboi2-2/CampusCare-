@@ -8,12 +8,13 @@ import {
   Loader2,
   Image as ImageIcon,
 } from 'lucide-react';
-import { Ticket } from '../types';
+import { Ticket, UserRole } from '../types';
 
 interface RepairCompletionModalProps {
   isOpen: boolean;
   onClose: () => void;
   ticket: Ticket | null;
+  role: UserRole;
   onRepairCompleted: (updatedTicket: Ticket) => void;
 }
 
@@ -21,6 +22,7 @@ export const RepairCompletionModal: React.FC<RepairCompletionModalProps> = ({
   isOpen,
   onClose,
   ticket,
+  role,
   onRepairCompleted,
 }) => {
   const [workNotes, setWorkNotes] = useState(
@@ -53,6 +55,7 @@ export const RepairCompletionModal: React.FC<RepairCompletionModalProps> = ({
           workNotes,
           afterPhotoUrl,
           technicianName,
+          role,
         }),
       });
 
@@ -144,7 +147,7 @@ export const RepairCompletionModal: React.FC<RepairCompletionModalProps> = ({
           <div>
             <label className="block text-xs font-semibold text-slate-700 mb-1 flex items-center justify-between">
               <span>After-Repair Photo URL (Visual Evidence)</span>
-              <span className="text-[10px] text-indigo-600 font-medium">Used for Gemma 4 visual comparison</span>
+              <span className="text-[10px] text-indigo-600 font-medium">Used for Gemini 3.8 Flash visual comparison</span>
             </label>
             <div className="flex gap-2 items-center">
               <input
@@ -169,8 +172,8 @@ export const RepairCompletionModal: React.FC<RepairCompletionModalProps> = ({
             <Sparkles className="w-4 h-4 text-purple-600 shrink-0 mt-0.5" />
             <div className="text-[11px] leading-relaxed">
               <span className="font-bold">Next AI Step:</span> Upon submission, CampusCare AI analyzes
-              both before & after photos to detect visible changes (e.g. pipe joint seated, dry surface)
-              and calculates a resolution confidence score before notifying the student.
+              both before &amp; after photos to detect visible changes (e.g. pipe joint seated, dry surface)
+              and reports evidence quality and any remaining concerns before notifying the student.
             </div>
           </div>
 

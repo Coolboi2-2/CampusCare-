@@ -196,7 +196,7 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
                               : 'bg-amber-50 text-amber-800 border-amber-200'
                           }`}
                         >
-                          {ticket.issueAnalysisMetadata.provider === 'gemma' ? 'Gemma 4' : 'Fallback'}
+                          {ticket.issueAnalysisMetadata.provider === 'gemma' ? 'Gemini 3.8 Flash' : 'Fallback'}
                         </span>
                       )}
                     </div>

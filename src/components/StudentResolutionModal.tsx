@@ -8,13 +8,14 @@ import {
   AlertCircle,
   Loader2,
 } from 'lucide-react';
-import { Ticket } from '../types';
+import { Ticket, UserRole } from '../types';
 
 interface StudentResolutionModalProps {
   isOpen: boolean;
   onClose: () => void;
   ticket: Ticket | null;
   mode: 'confirm' | 'reopen';
+  role: UserRole;
   onUpdated: (ticket: Ticket) => void;
 }
 
@@ -23,6 +24,7 @@ export const StudentResolutionModal: React.FC<StudentResolutionModalProps> = ({
   onClose,
   ticket,
   mode,
+  role,
   onUpdated,
 }) => {
   const [rating, setRating] = useState(5);
@@ -44,8 +46,8 @@ export const StudentResolutionModal: React.FC<StudentResolutionModalProps> = ({
       const endpoint = mode === 'confirm' ? `/api/tickets/${ticket.id}/resolve` : `/api/tickets/${ticket.id}/reopen`;
       const payload =
         mode === 'confirm'
-          ? { confirmedBy: ticket.reporterName, rating, comment }
-          : { reason: reopenReason, reopenedBy: ticket.reporterName };
+          ? { confirmedBy: ticket.reporterName, rating, comment, role }
+          : { reason: reopenReason, reopenedBy: ticket.reporterName, role };
 
       const res = await fetch(endpoint, {
         method: 'PUT',

@@ -1,6 +1,7 @@
 import { GoogleGenAI } from '@google/genai';
 import { IssueAnalysis, AssessmentMetadata, IssueAnalysisSchema } from './schemas';
 import { fallbackAnalyzeIssue } from './fallback';
+import { fetchImagePart, InlineImagePart } from './image';
 
 export interface AnalyzeIssueInput {
   description: string;
@@ -32,7 +33,7 @@ export async function analyzeIssue(
   const promptVersion = '2.0-gemma-audit';
   const schemaVersion = '1.0';
 
-  const systemPrompt = `You are CampusCare AI (Gemma 4 model).
+  const systemPrompt = `You are CampusCare AI (Gemini 3.8 Flash model).
 Analyze this campus maintenance problem report and return a strict JSON object.
 Rules:
 1. Separate visible evidence from student claims.
@@ -55,6 +56,13 @@ Location: "${locationText.trim()}"
 Photo Evidence: ${photoUrl || 'No photo provided'}`;
 
   try {
+    // Attach the actual photo bytes so the model inspects the image, not just the URL.
+    const parts: Array<InlineImagePart | { text: string }> = [];
+    if (photoUrl) {
+      parts.push(await fetchImagePart(photoUrl));
+    }
+    parts.push({ text: `${systemPrompt}\n\n${userContent}` });
+
     // Add 10-second timeout guard
     const timeoutPromise = new Promise<never>((_, reject) =>
       setTimeout(() => reject(new Error('AI inference request timed out after 10000ms')), 10000)
@@ -62,9 +70,7 @@ Photo Evidence: ${photoUrl || 'No photo provided'}`;
 
     const generatePromise = aiClient.models.generateContent({
       model: modelId,
-      contents: [
-        { role: 'user', parts: [{ text: `${systemPrompt}\n\n${userContent}` }] },
-      ],
+      contents: [{ role: 'user', parts }],
       config: {
         responseMimeType: 'application/json',
       },

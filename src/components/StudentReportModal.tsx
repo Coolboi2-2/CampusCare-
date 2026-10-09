@@ -312,7 +312,7 @@ export const StudentReportModal: React.FC<StudentReportModalProps> = ({
                       : 'bg-amber-100 text-amber-800 border-amber-200'
                   }`}
                 >
-                  {aiMeta.provider === 'gemma' ? 'Live Gemma 4' : 'Fallback Rules (AI Offline)'}
+                  {aiMeta.provider === 'gemma' ? 'Live Gemini 3.8 Flash' : 'Fallback Rules (AI Offline)'}
                 </span>
               )}
 

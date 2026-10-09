@@ -14,6 +14,20 @@ export interface TransitionResult {
 }
 
 /**
+ * Legal state-machine edges. A transition not listed here is rejected,
+ * regardless of role, so tickets cannot skip workflow stages.
+ */
+const ALLOWED_TRANSITIONS: Record<TicketStatus, TicketStatus[]> = {
+  reported: ['assigned', 'in_progress', 'escalated'],
+  assigned: ['in_progress', 'escalated'],
+  in_progress: ['awaiting_verification', 'escalated'],
+  awaiting_verification: ['resolved', 'reopened', 'escalated'],
+  resolved: ['reopened'],
+  reopened: ['assigned', 'in_progress', 'escalated'],
+  escalated: ['assigned', 'in_progress', 'resolved', 'reopened'],
+};
+
+/**
  * Validates whether a state transition is permitted for a given user role.
  */
 export function validateStateTransition(
@@ -27,6 +41,11 @@ export function validateStateTransition(
   // Idempotency: if already in target status, allow without side-effects
   if (currentStatus === targetStatus) {
     return { allowed: true };
+  }
+
+  // 0. Workflow sequencing: only allow edges defined by the state machine.
+  if (!ALLOWED_TRANSITIONS[currentStatus].includes(targetStatus)) {
+    return { allowed: false, reason: `Disallowed transition from ${currentStatus} to ${targetStatus}` };
   }
 
   // 1. Reported -> Assigned

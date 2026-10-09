@@ -1,8 +1,9 @@
-import express, { Request, Response } from 'express';
+import express, { Request, Response, NextFunction } from 'express';
 import cors from 'cors';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { GoogleGenAI } from '@google/genai';
+import { z } from 'zod';
 import {
   Ticket,
   Department,
@@ -13,17 +14,96 @@ import {
 } from './src/types.js';
 import { analyzeIssue } from './src/lib/ai/analyzeIssue.js';
 import { verifyRepair } from './src/lib/ai/verifyRepair.js';
+import type { VerificationDecision } from './src/lib/ai/verifyRepair.js';
 import { validateStateTransition } from './src/lib/workflow/ticketTransitions.js';
+import type {
+  IssueAnalysis,
+  RepairAssessment,
+  AssessmentMetadata,
+} from './src/lib/ai/schemas.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const app = express();
-const PORT = 3000;
+const PORT = Number(process.env.PORT) || 3000;
 
 app.use(cors());
 app.use(express.json({ limit: '15mb' }));
 app.use(express.urlencoded({ extended: true, limit: '15mb' }));
+
+// =================== REQUEST VALIDATION ===================
+const DepartmentSchema = z.enum(['Plumbing', 'Electrical', 'Cleaning', 'Carpentry', 'HVAC', 'General']);
+const RoleSchema = z.enum(['student', 'technician', 'admin']);
+const LocationSchema = z.object({
+  zone: z.string().min(1),
+  building: z.string().min(1),
+  floor: z.string().min(1),
+  room: z.string().min(1),
+});
+const LocationInputSchema = z.union([LocationSchema, z.string().min(1)]);
+// Empty string is tolerated (treated as "no photo") so clearing the URL field doesn't 400.
+const OptionalUrl = z.union([z.url(), z.literal('')]).optional();
+
+const AnalyzeBodySchema = z.object({
+  description: z.string().min(5),
+  location: LocationInputSchema.optional(),
+  photoUrl: OptionalUrl,
+});
+const CreateTicketBodySchema = z.object({
+  reporterName: z.string().min(1).optional(),
+  reporterEmail: z.email().optional(),
+  reporterPhone: z.string().optional(),
+  description: z.string().min(5),
+  location: LocationInputSchema,
+  beforePhotoUrl: OptionalUrl,
+  customDepartment: DepartmentSchema.optional(),
+});
+const AssignBodySchema = z.object({
+  technicianName: z.string().min(1).optional(),
+  department: DepartmentSchema.optional(),
+  actorName: z.string().min(1).optional(),
+  actorRole: RoleSchema.optional(),
+});
+const StatusBodySchema = z.object({
+  status: z.enum([
+    'reported',
+    'assigned',
+    'in_progress',
+    'awaiting_verification',
+    'resolved',
+    'reopened',
+    'escalated',
+  ]),
+  actor: z.string().min(1).optional(),
+  role: RoleSchema.optional(),
+  notes: z.string().optional(),
+});
+const RepairBodySchema = z.object({
+  workNotes: z.string().optional(),
+  afterPhotoUrl: OptionalUrl,
+  technicianName: z.string().min(1).optional(),
+  role: RoleSchema.optional(),
+});
+const ResolveBodySchema = z.object({
+  confirmedBy: z.string().min(1).optional(),
+  role: RoleSchema.optional(),
+  rating: z.number().int().min(1).max(5).optional(),
+  comment: z.string().optional(),
+});
+const ReopenBodySchema = z.object({
+  reason: z.string().min(1),
+  reopenedBy: z.string().min(1).optional(),
+  role: RoleSchema.optional(),
+});
+
+function validateBody(schema: z.ZodType, body: unknown): { data?: any; error?: string } {
+  const parsed = schema.safeParse(body ?? {});
+  if (!parsed.success) {
+    return { error: parsed.error.issues[0]?.message || 'Invalid request body' };
+  }
+  return { data: parsed.data };
+}
 
 // Initialize Google Gemini Client if API key is present
 const geminiApiKey = process.env.GEMINI_API_KEY;
@@ -299,16 +379,18 @@ const initialTickets: Ticket[] = [
   },
 ];
 
-let tickets: Map<string, Ticket> = new Map(initialTickets.map((t) => [t.id, t]));
+// Deep-copy the seeds so live mutations never corrupt the pristine demo state.
+let tickets: Map<string, Ticket> = new Map(
+  initialTickets.map((t) => [t.id, JSON.parse(JSON.stringify(t)) as Ticket])
+);
 
 // =================== API ROUTES ===================
 
 // 1. Analyze issue prior to submission
 app.post('/api/tickets/analyze', async (req: Request, res: Response) => {
-  const { description, location, photoUrl } = req.body || {};
-  if (!description) {
-    return res.status(400).json({ error: 'Description is required for issue analysis' });
-  }
+  const v = validateBody(AnalyzeBodySchema, req.body);
+  if (v.error) return res.status(400).json({ error: v.error });
+  const { description, location, photoUrl } = v.data;
 
   const locationString = typeof location === 'object'
     ? `${location.zone || ''} > ${location.building || ''} > ${location.room || ''}`
@@ -354,8 +436,8 @@ app.get('/api/tickets', (req: Request, res: Response) => {
         t.id.toLowerCase().includes(q) ||
         t.description.toLowerCase().includes(q) ||
         t.aiAssessment.title.toLowerCase().includes(q) ||
-        t.location.building.toLowerCase().includes(q) ||
-        t.location.room.toLowerCase().includes(q)
+        (t.location.building || '').toLowerCase().includes(q) ||
+        (t.location.room || '').toLowerCase().includes(q)
     );
   }
 
@@ -374,6 +456,8 @@ app.get('/api/tickets/:id', (req: Request, res: Response) => {
 
 // 4. Create new ticket
 app.post('/api/tickets', async (req: Request, res: Response) => {
+  const v = validateBody(CreateTicketBodySchema, req.body);
+  if (v.error) return res.status(400).json({ error: v.error });
   const {
     reporterName,
     reporterEmail,
@@ -382,25 +466,27 @@ app.post('/api/tickets', async (req: Request, res: Response) => {
     location,
     beforePhotoUrl,
     customDepartment,
-  } = req.body || {};
-
-  if (!description || !location) {
-    return res.status(400).json({ error: 'Description and location are required' });
-  }
+  } = v.data;
 
   const locationString = typeof location === 'object'
     ? `${location.zone || ''} > ${location.building || ''} > ${location.room || ''}`
     : String(location);
 
   // Run structured AI analysis
-  const { analysis, metadata } = await analyzeIssue(
-    {
-      description,
-      locationText: locationString,
-      photoUrl: beforePhotoUrl,
-    },
-    aiClient
-  );
+  let analysis: IssueAnalysis;
+  let metadata: AssessmentMetadata;
+  try {
+    ({ analysis, metadata } = await analyzeIssue(
+      {
+        description,
+        locationText: locationString,
+        photoUrl: beforePhotoUrl,
+      },
+      aiClient
+    ));
+  } catch (err: any) {
+    return res.status(400).json({ error: err?.message || 'Issue analysis failed' });
+  }
 
   const newTicketId = `CC-2026-${++ticketCounter}`;
   const now = new Date().toISOString();
@@ -441,7 +527,7 @@ app.post('/api/tickets', async (req: Request, res: Response) => {
       {
         id: `evt-${Date.now()}-2`,
         timestamp: now,
-        actor: `CampusCare (${metadata.provider === 'gemma' ? 'Live Gemma 4' : 'Deterministic Engine'})`,
+        actor: `CampusCare (${metadata.provider === 'gemma' ? 'Live Gemini 3.8 Flash' : 'Deterministic Engine'})`,
         role: 'admin',
         action: `Routed to ${assignedDepartment}`,
         notes: `Priority: ${analysis.priority}. Mode: ${metadata.provider.toUpperCase()}.${isSafetyCritical ? ' Flagged for Safety Review.' : ''}`,
@@ -459,12 +545,14 @@ app.put('/api/tickets/:id/assign', (req: Request, res: Response) => {
   const ticket = tickets.get(ticketId);
   if (!ticket) return res.status(404).json({ error: 'Ticket not found' });
 
-  const { technicianName, department, actorName, actorRole } = req.body || {};
+  const v = validateBody(AssignBodySchema, req.body);
+  if (v.error) return res.status(400).json({ error: v.error });
+  const { technicianName, department, actorName, actorRole } = v.data;
 
-  // Validate state transition policy
+  // Validate state transition policy (missing role defaults to least-privilege 'student')
   const validation = validateStateTransition(ticket, 'assigned', {
     actorName: actorName || 'Admin Dispatcher',
-    actorRole: (actorRole as UserRole) || 'admin',
+    actorRole: (actorRole as UserRole) || 'student',
   });
 
   if (!validation.allowed) {
@@ -481,7 +569,7 @@ app.put('/api/tickets/:id/assign', (req: Request, res: Response) => {
     id: `evt-${Date.now()}`,
     timestamp: ticket.updatedAt,
     actor: actorName || 'Admin Dispatcher',
-    role: (actorRole as UserRole) || 'admin',
+    role: (actorRole as UserRole) || 'student',
     action: `Assigned to ${ticket.assignedTechnician || 'Staff'} (${ticket.department})`,
   });
 
@@ -494,13 +582,14 @@ app.put('/api/tickets/:id/status', (req: Request, res: Response) => {
   const ticket = tickets.get(ticketId);
   if (!ticket) return res.status(404).json({ error: 'Ticket not found' });
 
-  const { status, actor, role, notes } = req.body || {};
-  if (!status) return res.status(400).json({ error: 'Status is required' });
+  const v = validateBody(StatusBodySchema, req.body);
+  if (v.error) return res.status(400).json({ error: v.error });
+  const { status, actor, role, notes } = v.data;
 
   // Validate state transition policy
   const validation = validateStateTransition(ticket, status as TicketStatus, {
     actorName: actor || 'Staff',
-    actorRole: (role as UserRole) || 'technician',
+    actorRole: (role as UserRole) || 'student',
   });
 
   if (!validation.allowed) {
@@ -528,12 +617,14 @@ app.post('/api/tickets/:id/repair', async (req: Request, res: Response) => {
   const ticket = tickets.get(ticketId);
   if (!ticket) return res.status(404).json({ error: 'Ticket not found' });
 
-  const { workNotes, afterPhotoUrl, technicianName, role } = req.body || {};
+  const v = validateBody(RepairBodySchema, req.body);
+  if (v.error) return res.status(400).json({ error: v.error });
+  const { workNotes, afterPhotoUrl, technicianName, role } = v.data;
 
-  // Validate state transition
+  // Validate state transition (missing role defaults to least-privilege 'student')
   const validation = validateStateTransition(ticket, 'awaiting_verification', {
     actorName: technicianName || 'Technician',
-    actorRole: (role as UserRole) || 'technician',
+    actorRole: (role as UserRole) || 'student',
   });
 
   if (!validation.allowed) {
@@ -543,24 +634,32 @@ app.post('/api/tickets/:id/repair', async (req: Request, res: Response) => {
   const resolvedAfterPhoto = afterPhotoUrl || ticket.beforePhotoUrl;
   const resolvedNotes = workNotes || 'Repairs completed by technician.';
 
+  // Run AI Before/After Verification with strict validation & safety gate
+  let assessment: RepairAssessment;
+  let decision: VerificationDecision;
+  let metadata: AssessmentMetadata;
+  try {
+    ({ assessment, decision, metadata } = await verifyRepair(
+      {
+        ticketId: ticket.id,
+        originalDescription: ticket.description,
+        department: ticket.department,
+        beforePhotoUrl: ticket.beforePhotoUrl,
+        afterPhotoUrl: resolvedAfterPhoto,
+        technicianNotes: resolvedNotes,
+        isSafetyCritical: ticket.isSafetyCritical,
+      },
+      aiClient
+    ));
+  } catch (err: any) {
+    return res.status(502).json({ error: err?.message || 'Repair verification failed' });
+  }
+
+  // Only mutate ticket state after verification succeeds.
   ticket.workNotes = resolvedNotes;
   ticket.afterPhotoUrl = resolvedAfterPhoto;
   ticket.status = 'awaiting_verification';
   ticket.updatedAt = new Date().toISOString();
-
-  // Run AI Before/After Verification with strict validation & safety gate
-  const { assessment, decision, metadata } = await verifyRepair(
-    {
-      ticketId: ticket.id,
-      originalDescription: ticket.description,
-      department: ticket.department,
-      beforePhotoUrl: ticket.beforePhotoUrl,
-      afterPhotoUrl: resolvedAfterPhoto,
-      technicianNotes: resolvedNotes,
-      isSafetyCritical: ticket.isSafetyCritical,
-    },
-    aiClient
-  );
 
   const attemptRecord: RepairAssessmentRecord = {
     id: `rep-${ticket.repairAttempts.length + 1}`,
@@ -593,7 +692,7 @@ app.post('/api/tickets/:id/repair', async (req: Request, res: Response) => {
   ticket.auditTrail.push({
     id: `evt-${Date.now()}-ai`,
     timestamp: new Date().toISOString(),
-    actor: `CampusCare AI (${metadata.provider === 'gemma' ? 'Gemma 4 Live' : 'Deterministic Rule'})`,
+    actor: `CampusCare AI (${metadata.provider === 'gemma' ? 'Gemini 3.8 Flash Live' : 'Deterministic Rule'})`,
     role: 'admin',
     action: `Verification: Outcome=${assessment.visualOutcome}, Action=${assessment.recommendedAction}`,
     notes: `Evidence Quality: ${assessment.evidenceQuality}. ${decision.requiresHumanReview ? 'Requires Human Review.' : 'Eligible for student sign-off.'}`,
@@ -608,7 +707,9 @@ app.put('/api/tickets/:id/resolve', (req: Request, res: Response) => {
   const ticket = tickets.get(ticketId);
   if (!ticket) return res.status(404).json({ error: 'Ticket not found' });
 
-  const { confirmedBy, role, rating, comment } = req.body || {};
+  const v = validateBody(ResolveBodySchema, req.body);
+  if (v.error) return res.status(400).json({ error: v.error });
+  const { confirmedBy, role, rating, comment } = v.data;
 
   // Validate state transition policy
   const validation = validateStateTransition(ticket, 'resolved', {
@@ -653,8 +754,9 @@ app.put('/api/tickets/:id/reopen', (req: Request, res: Response) => {
   const ticket = tickets.get(ticketId);
   if (!ticket) return res.status(404).json({ error: 'Ticket not found' });
 
-  const { reason, reopenedBy, role } = req.body || {};
-  if (!reason) return res.status(400).json({ error: 'Reason for reopening is required' });
+  const v = validateBody(ReopenBodySchema, req.body);
+  if (v.error) return res.status(400).json({ error: v.error });
+  const { reason, reopenedBy, role } = v.data;
 
   // Validate state transition
   const validation = validateStateTransition(ticket, 'reopened', {
@@ -730,14 +832,14 @@ app.get('/api/analytics', (req: Request, res: Response) => {
     awaitingVerification,
     escalated,
     resolutionRate: total > 0 ? Math.round((resolved / total) * 100) : 0,
-    averageTurnaroundHours: 3.4,
-    aiProvider: geminiApiKey ? 'Live Gemma 4 (@google/genai)' : 'Deterministic Rules (Offline Fallback)',
+    aiProvider: geminiApiKey ? 'Live Gemini 3.8 Flash (@google/genai)' : 'Deterministic Rules (Offline Fallback)',
   });
 });
 
 // 12. Reset demo state to initial 90-second demo walkthrough
 app.post('/api/demo/reset', (req: Request, res: Response) => {
   tickets = new Map(initialTickets.map((t) => [t.id, JSON.parse(JSON.stringify(t))]));
+  ticketCounter = 1045;
   return res.json({ msg: 'Demo state reset successfully', total: tickets.size });
 });
 
@@ -756,6 +858,13 @@ async function startServer() {
       res.sendFile(path.join(__dirname, 'dist', 'index.html'));
     });
   }
+
+  // JSON error handler so API clients never receive Express HTML error pages.
+  app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
+    console.error('[CampusCare] Unhandled request error:', err);
+    if (res.headersSent) return;
+    res.status(err?.status || 500).json({ error: err?.message || 'Internal server error' });
+  });
 
   app.listen(PORT, '0.0.0.0', () => {
     console.log(`[CampusCare] Server listening at http://0.0.0.0:${PORT}`);

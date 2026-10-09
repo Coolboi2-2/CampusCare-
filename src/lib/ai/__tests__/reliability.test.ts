@@ -181,4 +181,25 @@ describe('CampusCare Workflow Engine: State Transitions & Role Authorization', (
 
     expect(check.allowed).toBe(true);
   });
+
+  it('WF-05: Rejects transitions that skip workflow stages', () => {
+    const check = validateStateTransition(mockTicket, 'awaiting_verification', {
+      actorName: 'Devon Lee',
+      actorRole: 'technician',
+    });
+
+    expect(check.allowed).toBe(false);
+    expect(check.reason).toContain('Disallowed transition');
+  });
+
+  it('WF-06: Rejects backwards transitions from resolved', () => {
+    const resolvedTicket: Ticket = { ...mockTicket, status: 'resolved' };
+
+    const check = validateStateTransition(resolvedTicket, 'in_progress', {
+      actorName: 'Devon Lee',
+      actorRole: 'technician',
+    });
+
+    expect(check.allowed).toBe(false);
+  });
 });

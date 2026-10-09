@@ -39,7 +39,7 @@ const DEMO_STEPS = [
     time: '15–30s',
     title: 'Validate Schema',
     role: 'admin' as UserRole,
-    headline: 'Gemma 4 extracts defect, observations, priority & validates Zod contract',
+    headline: 'Gemini 3.8 Flash extracts defect, observations, priority & validates Zod contract',
     desc: 'Strict Zod schema contract validates output. Department recommended: Plumbing. Priority: Medium. Safety checks evaluated before queue placement.',
     actionLabel: 'Inspect Schema Output & Triage',
   },
@@ -66,7 +66,7 @@ const DEMO_STEPS = [
     time: '65–80s',
     title: 'Verify with AI',
     role: 'student' as UserRole,
-    headline: 'Gemma compares Before & After photos and evaluates evidence quality',
+    headline: 'Gemini compares Before & After photos and evaluates evidence quality',
     desc: 'AI evaluates visual outcome (Improved), evidence quality (Clear), checks for residual defects, and generates an immutable RepairAssessmentRecord.',
     actionLabel: 'Review Before & After Comparison',
   },
@@ -99,8 +99,8 @@ export const DemoWalkthroughModal: React.FC<DemoWalkthroughModalProps> = ({
     try {
       const ticketId = 'CC-2026-1042';
 
-      if (stepNumber === 3) {
-        // Start work
+      if (stepNumber === 3 || stepNumber === 4 || stepNumber === 5) {
+        // Ensure the ticket is in progress; the state machine requires it before work completes.
         await fetch(`/api/tickets/${ticketId}/status`, {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
@@ -111,7 +111,9 @@ export const DemoWalkthroughModal: React.FC<DemoWalkthroughModalProps> = ({
             notes: 'Technician arrived on-site and staged P-trap replacement fittings.',
           }),
         });
-      } else if (stepNumber === 4 || stepNumber === 5) {
+      }
+
+      if (stepNumber === 4 || stepNumber === 5) {
         // Complete repair & run AI verification
         await fetch(`/api/tickets/${ticketId}/repair`, {
           method: 'POST',
@@ -139,7 +141,17 @@ export const DemoWalkthroughModal: React.FC<DemoWalkthroughModalProps> = ({
     setIsSimulating(true);
     try {
       if (type === 'duplicate') {
-        // Trigger duplicate photo test on CC-2026-1042
+        // Trigger duplicate photo test on CC-2026-1042 (ensure in progress first).
+        await fetch(`/api/tickets/CC-2026-1042/status`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            status: 'in_progress',
+            actor: 'Marcus Vance',
+            role: 'technician',
+            notes: 'Preparing duplicate-evidence adversarial test.',
+          }),
+        });
         await fetch(`/api/tickets/CC-2026-1042/repair`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -183,7 +195,7 @@ export const DemoWalkthroughModal: React.FC<DemoWalkthroughModalProps> = ({
                 </span>
               </div>
               <p className="text-xs text-slate-500">
-                Gemma recommends • Validated application logic decides • People confirm
+                Gemini recommends • Validated application logic decides • People confirm
               </p>
             </div>
           </div>

@@ -102,7 +102,7 @@ export const TicketDetailModal: React.FC<TicketDetailModalProps> = ({
                       : 'bg-amber-50 text-amber-800 border-amber-200'
                   }`}
                 >
-                  {ticket.issueAnalysisMetadata.provider === 'gemma' ? 'AI: Gemma 4 Live' : 'AI: Fallback Rules'}
+                  {ticket.issueAnalysisMetadata.provider === 'gemma' ? 'AI: Gemini 3.8 Flash Live' : 'AI: Fallback Rules'}
                 </span>
               )}
             </div>
@@ -218,11 +218,11 @@ export const TicketDetailModal: React.FC<TicketDetailModalProps> = ({
                 </div>
                 <div>
                   <h4 className="font-bold text-xs text-purple-950 uppercase tracking-wider">
-                    Gemma 4 Verification Verdict (Attempt #{latestVerif.attemptNumber})
+                    Gemini 3.8 Flash Verification Verdict (Attempt #{latestVerif.attemptNumber})
                   </h4>
                   <span className="text-[11px] text-purple-700">
                     Mode:{' '}
-                    <strong>{latestVerif.metadata.provider === 'gemma' ? 'Live Gemma 4' : 'Deterministic Rules'}</strong>
+                    <strong>{latestVerif.metadata.provider === 'gemma' ? 'Live Gemini 3.8 Flash' : 'Deterministic Rules'}</strong>
                   </span>
                 </div>
               </div>

@@ -5,6 +5,7 @@ import {
   RepairAssessmentSchema,
 } from './schemas';
 import { fallbackVerifyRepair } from './fallback';
+import { fetchImagePart, InlineImagePart } from './image';
 
 export interface VerificationDecision {
   assessment: RepairAssessment;
@@ -15,7 +16,7 @@ export interface VerificationDecision {
 /**
  * Deterministic Safety Gate
  * Validates the model output against institutional safety policy.
- * Gemma recommends; deterministic application rules govern permissions.
+ * Gemini recommends; deterministic application rules govern permissions.
  */
 export function applyVerificationRules(
   assessment: RepairAssessment,
@@ -107,7 +108,7 @@ export async function verifyRepair(
   const promptVersion = '2.0-visual-comparison';
   const schemaVersion = '1.0';
 
-  const systemPrompt = `You are CampusCare AI (Gemma 4 model).
+  const systemPrompt = `You are CampusCare AI (Gemini 3.8 Flash model).
 You are evaluating photographic evidence of a completed campus maintenance repair.
 
 Critical instructions:
@@ -134,15 +135,19 @@ Original Before Photo: ${beforePhotoUrl}
 After-Repair Photo: ${afterPhotoUrl}`;
 
   try {
+    // Attach both photos so the model performs a real before/after visual comparison.
+    const parts: Array<InlineImagePart | { text: string }> = [];
+    parts.push(await fetchImagePart(beforePhotoUrl));
+    parts.push(await fetchImagePart(afterPhotoUrl));
+    parts.push({ text: `${systemPrompt}\n\n${userContent}` });
+
     const timeoutPromise = new Promise<never>((_, reject) =>
       setTimeout(() => reject(new Error('Visual verification timed out after 10000ms')), 10000)
     );
 
     const generatePromise = aiClient.models.generateContent({
       model: modelId,
-      contents: [
-        { role: 'user', parts: [{ text: `${systemPrompt}\n\n${userContent}` }] },
-      ],
+      contents: [{ role: 'user', parts }],
       config: {
         responseMimeType: 'application/json',
       },

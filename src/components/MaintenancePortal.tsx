@@ -226,7 +226,7 @@ export const MaintenancePortal: React.FC<MaintenancePortalProps> = ({
                     </div>
                   </div>
 
-                  {/* Visible Observations from Gemma 4 */}
+                  {/* Visible Observations from Gemini 3.8 Flash */}
                   <div className="p-2.5 rounded-xl bg-slate-50 border border-slate-200 text-xs space-y-1">
                     <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider flex items-center gap-1">
                       <Sparkles className="w-3 h-3 text-indigo-500" />

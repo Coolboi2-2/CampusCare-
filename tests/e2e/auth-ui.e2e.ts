@@ -26,55 +26,40 @@ test.beforeAll(() => {
   }
 });
 
+/** Reach the staff sign-in from the header (works on every viewport). */
 async function openAdminPortal(page: Page) {
   await page.goto('/');
-  const desktopNav = page.locator('nav[aria-label="Portal navigation"]');
-  if (await desktopNav.isVisible()) {
-    await desktopNav.getByRole('button', { name: /admin \/ warden/i }).click();
-  } else {
-    await page.getByRole('button', { name: /open navigation menu/i }).click();
-    await page
-      .locator('#mobile-menu')
-      .getByRole('button', { name: 'Admin / Warden', exact: true })
-      .click();
-  }
+  await page.getByRole('button', { name: /staff sign in/i }).click();
+  await expect(page.getByRole('heading', { name: /admin \/ warden sign-in/i })).toBeVisible();
+}
+
+async function signOut(page: Page) {
+  await page.getByRole('button', { name: /account menu/i }).click();
+  await page.getByRole('button', { name: /^sign out$/i }).click();
 }
 
 test.describe('admin sign-in UI', () => {
   test('shows a dedicated admin sign-in and rejects a bad password', async ({ page }) => {
     await openAdminPortal(page);
-    await expect(page.getByRole('heading', { name: /admin \/ warden sign-in/i })).toBeVisible();
 
     await page.getByLabel('Institutional email').fill(ADMIN_EMAIL);
     await page.getByLabel('Password', { exact: true }).fill('definitely-wrong');
-    await page.getByRole('button', { name: /sign in/i }).click();
+    await page.getByRole('button', { name: /^sign in$/i }).click();
     await expect(page.getByRole('alert')).toContainText(/invalid email or password/i);
   });
 
-  test('a valid admin signs in to the command centre and can sign out', async ({ page, isMobile }) => {
+  test('a valid admin signs in to the command centre and can sign out', async ({ page }) => {
     await openAdminPortal(page);
     await page.getByLabel('Institutional email').fill(ADMIN_EMAIL);
     await page.getByLabel('Password', { exact: true }).fill(ADMIN_PASSWORD);
-    await page.getByRole('button', { name: /sign in/i }).click();
+    await page.getByRole('button', { name: /^sign in$/i }).click();
 
     await expect(page.getByRole('heading', { name: /maintenance operations/i })).toBeVisible();
     await expect(page.getByRole('heading', { name: /recent administrative activity/i })).toBeVisible();
 
-    if (isMobile) {
-      await page.getByRole('button', { name: /open navigation menu/i }).click();
-      await page
-        .locator('#mobile-menu')
-        .getByRole('button', { name: /sign out of staff session/i })
-        .click();
-    } else {
-      await page
-        .locator('header')
-        .getByRole('button', { name: /sign out of staff session/i })
-        .click();
-    }
+    await signOut(page);
 
-    // Signing out returns to the public shell; the admin portal asks for credentials again.
+    // Signing out returns to the public shell; the admin area asks for credentials again.
     await openAdminPortal(page);
-    await expect(page.getByRole('heading', { name: /admin \/ warden sign-in/i })).toBeVisible();
   });
 });

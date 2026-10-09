@@ -1,0 +1,35 @@
+# Render blueprint for CampusCare (https://render.com/docs/blueprint-spec).
+# Deploy: New → Blueprint → pick this repo. Render builds and starts the app,
+# then probes /api/health.
+services:
+  - type: web
+    name: campuscare
+    runtime: node
+    plan: free
+    buildCommand: npm install --include=dev && npm run build
+    startCommand: npm run start
+    healthCheckPath: /api/health
+    autoDeploy: true
+    envVars:
+      - key: NODE_ENV
+        value: production
+      # Set these in the Render dashboard (marked "sync: false" so they are not
+      # stored in the repo). Without ADMIN_* the admin console stays disabled.
+      - key: ADMIN_EMAIL
+        sync: false
+      - key: ADMIN_PASSWORD
+        sync: false
+      - key: ADMIN_NAME
+        value: Campus Warden
+      - key: TECHNICIAN_EMAIL
+        sync: false
+      - key: TECHNICIAN_PASSWORD
+        sync: false
+      - key: TECHNICIAN_NAME
+        value: Maintenance Technician
+      - key: TECHNICIAN_DEPARTMENT
+        value: Plumbing
+      # Optional: enables live AI triage/verification. The deterministic
+      # fallback analyzer runs without it.
+      - key: GEMINI_API_KEY
+        sync: false

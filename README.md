@@ -1,58 +1,66 @@
-# CampusCare — Smart Campus Issue Reporting & AI-Assisted Resolution
+# CampusCare — Campus Maintenance Service
 
-> **Report it. Route it. Resolve it. Verify it.**
+A calm, trustworthy web app for reporting and resolving campus maintenance issues.
+Students report a problem, staff fix it, and the student confirms it — with a clear
+four-step trail (Reported → Assigned → Fixed → Confirmed) on every ticket.
 
-CampusCare is an AI-powered campus maintenance platform where students report problems using photos and natural language. Gemini 3.8 Flash helps interpret each report, create a structured work order, recommend the appropriate department, and compare before-and-after repair photos. Staff manage the actual work, while uncertain cases are escalated for human review.
+## Roles
 
----
+- **Student** (public — no login): report an issue, track it, confirm or reopen a fix.
+- **Maintenance staff** (login): work orders for their department, upload after-photos.
+- **Admin / Warden** (login): campus-wide oversight, reassignment, staff roles, audit log.
 
-## 1. Core Philosophy & Differentiator
+Only the signed-in role's portal is shown; students never see staff areas.
 
-Unlike traditional ticketing apps that only record complaints:
-1. **Report Naturally**: Students upload a photo and describe the problem in conversational language. No technical fault diagnosis required.
-2. **Understand with AI**: Gemini 3.8 Flash extracts the issue type, visible observations, suggested priority, and recommended department.
-3. **Route & Track**: Deterministic routing rules dispatch tickets to specialized department queues (Plumbing, Electrical, Carpentry, Cleaning, HVAC, General) with complete audit timestamps.
-4. **Verify the Outcome**: The model compares original and repair photos, identifies visible changes, detects remaining concerns, and recommends resolution confirmation or human escalation.
+## Run locally
 
----
+```bash
+bun install
+bun run dev          # http://localhost:3000  (Express + Vite, one port)
+```
 
-## 2. Three Role-Based Portals
+Staff accounts are provisioned from environment variables (never hardcoded). Copy
+`.env.example` to `.env` and set `ADMIN_EMAIL` / `ADMIN_PASSWORD` and
+`TECHNICIAN_EMAIL` / `TECHNICIAN_PASSWORD`. The admin console stays disabled with a
+warning if `ADMIN_*` is unset. `GEMINI_API_KEY` is optional — without it the
+deterministic fallback analyzer is used.
 
-- **Student Portal**:
-  - Submit photo & text incident reports with campus location hierarchy (Zone > Building > Floor > Room).
-  - Receive unique ticket IDs (e.g., `CC-2026-1042`).
-  - Track progress with a real-time status timeline.
-  - Review side-by-side photographic evidence and confirm resolution or request reopening.
+## Progressive Web App
 
-- **Maintenance Portal**:
-  - Department-specific work queues (Plumbing, Electrical, Cleaning, Carpentry, HVAC, General).
-  - Accept work orders and transition status (`in_progress`).
-  - Log technician diagnostic notes and upload after-repair photo evidence.
-  - Submit for automated AI Before/After Verification.
+- `public/manifest.webmanifest` + generated icons (192/512/maskable, Apple touch).
+- `public/sw.js` service worker: offline app shell, stale-while-revalidate for
+  hashed assets, network-first navigation, and `/api/*` always live.
+- Registered in production builds (`src/main.tsx`). Install from the browser menu;
+  it runs standalone and reopens offline.
+- `theme-color` and `viewport-fit=cover` are set in `index.html`.
 
-- **Admin / Warden Dashboard**:
-  - Campus-wide operations overview with live KPI counters (Active Orders, Awaiting Verification, Escalated/Human Review, Resolution Rate %).
-  - Department load & workload distribution bars.
-  - Master filterable table with full audit trail history and evidence archives.
-  - Reassign departments and handle safety flags.
+Verify after a production build:
 
----
+```bash
+bun run build
+NODE_ENV=production bun run start   # then open http://localhost:3000
+```
 
-## 3. The 90-Second Demo Walkthrough
+## Deploy to Render
 
-Launchable via the **"⚡ 90s Demo Tour"** button in the navigation header:
-1. **0–15s — Report**: Student reports washbasin leak with before photo: *"Water is leaking under the sink washbasin in Oak Hall Room 308."*
-2. **15–30s — Analyze**: CampusCare displays the model's observations, suggested category, priority, and recommended Plumbing queue.
-3. **30–45s — Assign**: Ticket `CC-2026-1042` is routed; technician Marcus Vance accepts the work order.
-4. **45–65s — Repair**: Technician updates status to *In Progress*, repairs the P-trap gasket, and uploads the after-photo.
-5. **65–80s — Verify**: The model compares Before and After photos, detects visible changes (*"P-trap seated, cabinet floor dry"*), and reports evidence quality and remaining concerns.
-6. **80–90s — Resolve**: Student confirms resolution or tests the reopen flow if issues remain.
+`render.yaml` is a ready-to-use Blueprint:
 
----
+1. Push this repo to GitHub/GitLab.
+2. Render → **New → Blueprint** → select the repo.
+3. Set the secret env vars (`ADMIN_EMAIL`, `ADMIN_PASSWORD`, `TECHNICIAN_EMAIL`,
+   `TECHNICIAN_PASSWORD`, optional `GEMINI_API_KEY`) in the dashboard.
+4. Render builds (`npm install --include=dev && npm run build`) and starts
+   (`npm run start`), probing `/api/health`.
 
-## 4. Technical Architecture
+The server reads `PORT` from the environment and binds `0.0.0.0`, suitable for any
+PaaS (Render, Fly, Railway). State is in memory for this demo, so a restart resets
+tickets; point the stores at a database before production use.
 
-- **Frontend**: React 19 SPA, Tailwind CSS, Lucide icons, responsive role-based portal navigation.
-- **Backend**: Express on Node.js 22, TypeScript, full REST API (`/api/tickets`, `/api/tickets/analyze`, `/api/tickets/:id/repair`, `/api/tickets/:id/resolve`, `/api/tickets/:id/reopen`, `/api/departments`, `/api/analytics`).
-- **AI Integration**: `@google/genai` TypeScript SDK (`gemini-3.8-flash`) with server-side multimodal prompt engine and deterministic fallback analyzer for 100% offline hackathon reliability.
-- **Port**: `3000` (host `0.0.0.0`).
+## Checks
+
+```bash
+bun run lint    # tsc --noEmit
+bun run test    # vitest (unit + auth/RBAC/rate-limit)
+bun run build   # production bundle
+bunx playwright test   # desktop / tablet / mobile e2e
+```

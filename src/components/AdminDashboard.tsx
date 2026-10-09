@@ -1,13 +1,28 @@
 import React, { useEffect, useState } from 'react';
-import { AlertTriangle, Inbox, RefreshCw, Search, SearchX, ShieldCheck, History, UserCog } from 'lucide-react';
+import {
+  AlertTriangle,
+  History,
+  Inbox,
+  PlayCircle,
+  RefreshCw,
+  Search,
+  SearchX,
+  ShieldCheck,
+  UserCog,
+} from 'lucide-react';
 import { Ticket, Department, SecurityEvent } from '../types';
 import { apiFetch, readApiError } from '../lib/api';
 import {
   StatusBadge,
   PriorityBadge,
+  CategoryPill,
+  UrgentBadge,
   TicketIdChip,
-  SafetyBadge,
 } from './ui/Badges';
+import { Card } from './ui/Card';
+import { Button } from './ui/Button';
+import { EmptyState } from './ui/EmptyState';
+import { Avatar } from './ui/Avatar';
 
 interface AdminDashboardProps {
   tickets: Ticket[];
@@ -16,6 +31,7 @@ interface AdminDashboardProps {
   onSelectTicket: (ticket: Ticket) => void;
   onReassignTicket: (ticket: Ticket, newDept: Department) => void;
   onRefresh: () => void;
+  onOpenTour: () => void;
 }
 
 interface StaffRow {
@@ -36,8 +52,17 @@ const SECURITY_ACTION_LABELS: Record<string, string> = {
   work_order_reassigned: 'Reassigned work order',
   staff_role_changed: 'Changed staff role',
   resolution_admin_override: 'Admin resolution override',
-  demo_state_reset: 'Reset demo state',
+  demo_state_reset: 'Reset sample data',
 };
+
+/** Internal engine names, shown only inside the admin-only Details disclosure. */
+const PROVIDER_LABELS: Record<string, string> = {
+  gemma: 'Gemma (live model)',
+  fallback: 'Fallback rules (deterministic)',
+};
+
+const providerLabel = (provider?: string): string =>
+  provider ? PROVIDER_LABELS[provider] ?? provider : 'Not recorded';
 
 export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   tickets,
@@ -45,6 +70,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   onSelectTicket,
   onReassignTicket,
   onRefresh,
+  onOpenTour,
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [deptFilter, setDeptFilter] = useState<string>('All');
@@ -127,89 +153,66 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
   const departments: Department[] = ['Plumbing', 'Electrical', 'Cleaning', 'Carpentry', 'HVAC', 'General'];
 
+  const kpis: { label: string; value: number | string; hint: string; tone: string }[] = [
+    { label: 'Total logged', value: total, hint: 'All campus facilities', tone: 'text-slate-900' },
+    { label: 'Active orders', value: active, hint: 'In maintenance queues', tone: 'text-brand-700' },
+    { label: 'Awaiting verification', value: awaitingVerif, hint: 'Repairs completed', tone: 'text-confirm-700' },
+    { label: 'Human review queue', value: escalatedOrReview, hint: 'Safety or uncertainty', tone: 'text-warning-700' },
+    { label: 'Critical issues', value: critical, hint: 'Open safety-critical', tone: 'text-critical-600' },
+    {
+      label: 'Verified resolution rate',
+      value: `${resolutionRate}%`,
+      hint: 'Confirmed by students or admin',
+      tone: 'text-success-700',
+    },
+  ];
+
+  const analysisMeta = tickets[0]?.issueAnalysisMetadata;
+  const verificationMeta = tickets.find((t) => t.latestVerification)?.latestVerification?.metadata;
+
   return (
     <div className="space-y-6">
-      {/* Page Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+      {/* Page header */}
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h1 className="text-xl sm:text-2xl font-extrabold tracking-tight text-slate-900">
-            Maintenance Operations
-          </h1>
+          <h1 className="text-2xl font-bold tracking-tight text-slate-900">Maintenance Operations</h1>
           <p className="mt-1 text-sm text-slate-500">
-            Oversight of work orders, department routing, and AI cases awaiting human sign-off.
+            Oversight of work orders, department routing, and cases awaiting human sign-off.
           </p>
         </div>
-        <button
+        <Button
           type="button"
+          variant="secondary"
+          size="sm"
           onClick={handleRefresh}
-          className="inline-flex items-center justify-center gap-2 px-3.5 py-2 rounded-control border border-line bg-surface hover:bg-surface-muted text-slate-700 text-xs font-semibold shadow-card transition-colors shrink-0"
+          className="shrink-0 self-start sm:self-auto"
         >
-          <RefreshCw className="w-3.5 h-3.5" aria-hidden="true" />
-          <span>Refresh</span>
-        </button>
+          <RefreshCw className="h-4 w-4" aria-hidden="true" />
+          Refresh
+        </Button>
       </div>
 
-      {/* KPI Metric Cards */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
-        <div className="bg-surface rounded-card border border-line shadow-card p-4">
-          <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">
-            Total Logged
-          </span>
-          <div className="text-2xl font-extrabold text-slate-900 mt-1">{total}</div>
-          <span className="text-[11px] text-slate-400">All campus facilities</span>
-        </div>
-
-        <div className="bg-surface rounded-card border border-line shadow-card p-4">
-          <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">
-            Active Orders
-          </span>
-          <div className="text-2xl font-extrabold text-brand-600 mt-1">{active}</div>
-          <span className="text-[11px] text-brand-500">In maintenance queues</span>
-        </div>
-
-        <div className="bg-surface rounded-card border border-line shadow-card p-4">
-          <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">
-            Awaiting Verification
-          </span>
-          <div className="text-2xl font-extrabold text-accent-600 mt-1">{awaitingVerif}</div>
-          <span className="text-[11px] text-accent-600">Repairs completed</span>
-        </div>
-
-        <div className="bg-surface rounded-card border border-line shadow-card p-4">
-          <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">
-            Human Review Queue
-          </span>
-          <div className="text-2xl font-extrabold text-warning-600 mt-1">{escalatedOrReview}</div>
-          <span className="text-[11px] text-warning-600">Safety / uncertainty</span>
-        </div>
-
-        <div className="bg-surface rounded-card border border-line shadow-card p-4">
-          <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">
-            Critical Issues
-          </span>
-          <div className="text-2xl font-extrabold text-critical-600 mt-1">{critical}</div>
-          <span className="text-[11px] text-critical-600">Open safety-critical</span>
-        </div>
-
-        <div className="bg-surface rounded-card border border-line shadow-card p-4">
-          <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">
-            Verified Resolution Rate
-          </span>
-          <div className="text-2xl font-extrabold text-success-600 mt-1">{resolutionRate}%</div>
-          <span className="text-[11px] text-success-600">Confirmed by students or admin</span>
-        </div>
+      {/* KPI cards */}
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
+        {kpis.map((kpi) => (
+          <Card key={kpi.label} className="p-4">
+            <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+              {kpi.label}
+            </span>
+            <div className={`mt-1 text-2xl font-bold ${kpi.tone}`}>{kpi.value}</div>
+            <span className="text-xs text-slate-400">{kpi.hint}</span>
+          </Card>
+        ))}
       </div>
 
-      {/* Department Workload Distribution */}
-      <div className="bg-surface rounded-card border border-line shadow-card p-5 space-y-3">
+      {/* Department workload */}
+      <Card className="space-y-3 p-5">
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <h2 className="text-xs font-bold uppercase tracking-wider text-slate-700">
-            Department Load & Ticket Distribution
-          </h2>
+          <h2 className="text-sm font-semibold text-slate-800">Department load</h2>
           <span className="text-xs text-slate-400">Active work orders by department</span>
         </div>
 
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
           {departments.map((d) => {
             const count = tickets.filter((t) => t.department === d && t.status !== 'resolved').length;
             const isActive = deptFilter === d;
@@ -220,25 +223,25 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 type="button"
                 onClick={() => setDeptFilter(isActive ? 'All' : d)}
                 aria-pressed={isActive}
-                className={`text-left p-3 rounded-control border transition-all ${
+                className={`rounded-control border p-3 text-left transition-colors ${
                   isActive
-                    ? 'border-accent-400 bg-accent-50 shadow-card'
-                    : 'border-line bg-surface-muted hover:border-accent-200'
+                    ? 'border-brand-300 bg-brand-50'
+                    : 'border-line bg-surface-muted hover:border-brand-200'
                 }`}
               >
                 <div className="flex items-center justify-between gap-2 text-xs">
                   <span className="font-semibold text-slate-800">{d}</span>
-                  <span className="font-mono text-xs font-bold px-1.5 py-0.5 rounded bg-accent-100 text-accent-700">
+                  <span className="rounded-full bg-brand-100 px-2 py-0.5 text-xs font-semibold text-brand-700">
                     {count}
                   </span>
                 </div>
                 <div
-                  className="mt-2 w-full bg-slate-200 h-1.5 rounded-full overflow-hidden"
+                  className="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-slate-200"
                   role="img"
                   aria-label={`${d}: ${count} active ${count === 1 ? 'ticket' : 'tickets'}`}
                 >
                   <div
-                    className="bg-accent-600 h-full rounded-full transition-all"
+                    className="h-full rounded-full bg-brand-600 transition-all"
                     style={{ width: `${Math.min(100, count * 33)}%` }}
                   />
                 </div>
@@ -246,30 +249,30 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
             );
           })}
         </div>
-      </div>
+      </Card>
 
       {/* Administrative oversight: recent privileged activity + staff roles */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <section className="bg-surface rounded-card border border-line shadow-card p-5">
-          <div className="flex items-center gap-2 mb-3">
-            <History className="w-4 h-4 text-navy-800" aria-hidden="true" />
-            <h2 className="text-xs font-bold uppercase tracking-wider text-slate-700">
-              Recent administrative activity
-            </h2>
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+        <Card className="p-5">
+          <div className="mb-3 flex items-center gap-2">
+            <History className="h-4 w-4 text-slate-500" aria-hidden="true" />
+            <h2 className="text-sm font-semibold text-slate-800">Recent administrative activity</h2>
           </div>
           {audit.length === 0 ? (
-            <p className="text-xs text-slate-500">No privileged activity recorded yet.</p>
+            <p className="text-sm text-slate-500">No privileged activity recorded yet.</p>
           ) : (
             <ul className="divide-y divide-line">
               {audit.map((event) => (
-                <li key={event.id} className="py-2.5 flex items-start gap-3">
-                  <span className="mt-1.5 w-1.5 h-1.5 rounded-full bg-brand-500 shrink-0" aria-hidden="true" />
+                <li key={event.id} className="flex items-start gap-3 py-2.5">
+                  <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-brand-500" aria-hidden="true" />
                   <div className="min-w-0 flex-1">
-                    <div className="text-xs font-semibold text-slate-800">
+                    <div className="text-sm font-semibold text-slate-800">
                       {SECURITY_ACTION_LABELS[event.action] || event.action}
-                      {event.detail ? <span className="font-normal text-slate-500"> — {event.detail}</span> : null}
+                      {event.detail ? (
+                        <span className="font-normal text-slate-500"> — {event.detail}</span>
+                      ) : null}
                     </div>
-                    <div className="text-[11px] text-slate-400 mt-0.5">
+                    <div className="mt-0.5 text-xs text-slate-400">
                       {event.actor} · {new Date(event.timestamp).toLocaleString()}
                     </div>
                   </div>
@@ -277,27 +280,28 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
               ))}
             </ul>
           )}
-        </section>
+        </Card>
 
-        <section className="bg-surface rounded-card border border-line shadow-card p-5">
-          <div className="flex items-center gap-2 mb-3">
-            <UserCog className="w-4 h-4 text-navy-800" aria-hidden="true" />
-            <h2 className="text-xs font-bold uppercase tracking-wider text-slate-700">Staff &amp; roles</h2>
+        <Card className="p-5">
+          <div className="mb-3 flex items-center gap-2">
+            <UserCog className="h-4 w-4 text-slate-500" aria-hidden="true" />
+            <h2 className="text-sm font-semibold text-slate-800">Staff &amp; roles</h2>
           </div>
           {adminError && (
             <p
               role="alert"
-              className="mb-2 text-xs text-critical-700 bg-critical-50 border border-critical-200 rounded-control px-2.5 py-1.5"
+              className="mb-2 rounded-control border border-critical-200 bg-critical-50 px-3 py-2 text-sm text-critical-700"
             >
               {adminError}
             </p>
           )}
           <ul className="divide-y divide-line">
             {staff.map((member) => (
-              <li key={member.id} className="py-2.5 flex items-center gap-3">
+              <li key={member.id} className="flex items-center gap-3 py-2.5">
+                <Avatar name={member.name} className="h-8 w-8" />
                 <div className="min-w-0 flex-1">
-                  <div className="text-xs font-semibold text-slate-800 truncate">{member.name}</div>
-                  <div className="text-[11px] text-slate-500 truncate">{member.email}</div>
+                  <div className="truncate text-sm font-semibold text-slate-800">{member.name}</div>
+                  <div className="truncate text-xs text-slate-500">{member.email}</div>
                 </div>
                 <label htmlFor={`role-${member.id}`} className="sr-only">
                   Role for {member.name}
@@ -306,7 +310,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   id={`role-${member.id}`}
                   value={member.role}
                   onChange={(e) => changeStaffRole(member.id, e.target.value as 'admin' | 'technician')}
-                  className="p-1.5 bg-surface-muted border border-line rounded-control text-xs font-medium focus:outline-hidden focus:ring-2 focus:ring-brand-500"
+                  className="rounded-control border border-line bg-surface-muted p-2 text-sm font-medium focus:outline-hidden focus:ring-2 focus:ring-brand-500"
                 >
                   <option value="technician">Technician</option>
                   <option value="admin">Administrator</option>
@@ -314,28 +318,27 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
               </li>
             ))}
             {staff.length === 0 && (
-              <li className="py-2 text-xs text-slate-500">No staff accounts configured.</li>
+              <li className="py-2 text-sm text-slate-500">No staff accounts configured.</li>
             )}
           </ul>
-          <p className="mt-3 text-[11px] text-slate-400 flex items-center gap-1.5">
-            <ShieldCheck className="w-3.5 h-3.5" aria-hidden="true" />
+          <p className="mt-3 flex items-center gap-1.5 text-xs text-slate-400">
+            <ShieldCheck className="h-3.5 w-3.5" aria-hidden="true" />
             Only administrators can change staff roles. You cannot remove your own admin access.
           </p>
-        </section>
+        </Card>
       </div>
 
-      {/* Filter and Master Table */}
-      <div className="bg-surface rounded-card border border-line shadow-card overflow-hidden">
+      {/* Filter and ticket table */}
+      <Card className="overflow-hidden">
         <h2 className="sr-only">All maintenance tickets</h2>
 
-        {/* Controls */}
-        <div className="p-4 border-b border-line flex flex-col lg:flex-row lg:items-center gap-3">
-          <div className="relative flex-1 min-w-0">
+        <div className="flex flex-col gap-3 border-b border-line p-4 lg:flex-row lg:items-center">
+          <div className="relative min-w-0 flex-1">
             <label htmlFor="admin-search" className="sr-only">
               Search tickets
             </label>
             <Search
-              className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
+              className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400"
               aria-hidden="true"
             />
             <input
@@ -344,11 +347,11 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
               placeholder="Search ID, description, building, or room..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full text-xs pl-9 pr-3 py-2 bg-surface-muted border border-line rounded-control focus:outline-hidden focus:ring-2 focus:ring-brand-500 focus:border-brand-400"
+              className="w-full rounded-control border border-line bg-surface-muted py-2 pl-9 pr-3 text-sm focus:border-brand-400 focus:outline-hidden focus:ring-2 focus:ring-brand-500"
             />
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-xs">
+          <div className="grid grid-cols-1 gap-2 text-sm sm:grid-cols-3">
             <div>
               <label htmlFor="admin-dept-filter" className="sr-only">
                 Filter by department
@@ -357,7 +360,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 id="admin-dept-filter"
                 value={deptFilter}
                 onChange={(e) => setDeptFilter(e.target.value)}
-                className="w-full p-2 bg-surface-muted border border-line rounded-control font-medium focus:outline-hidden focus:ring-2 focus:ring-brand-500 focus:border-brand-400"
+                className="w-full rounded-control border border-line bg-surface-muted p-2 font-medium focus:border-brand-400 focus:outline-hidden focus:ring-2 focus:ring-brand-500"
               >
                 <option value="All">All Departments</option>
                 {departments.map((d) => (
@@ -376,14 +379,14 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 id="admin-status-filter"
                 value={statusFilter}
                 onChange={(e) => setStatusFilter(e.target.value)}
-                className="w-full p-2 bg-surface-muted border border-line rounded-control font-medium focus:outline-hidden focus:ring-2 focus:ring-brand-500 focus:border-brand-400"
+                className="w-full rounded-control border border-line bg-surface-muted p-2 font-medium focus:border-brand-400 focus:outline-hidden focus:ring-2 focus:ring-brand-500"
               >
                 <option value="All">All Statuses</option>
-                <option value="reported">Reported</option>
+                <option value="reported">Received</option>
                 <option value="assigned">Assigned</option>
-                <option value="in_progress">In Progress</option>
-                <option value="awaiting_verification">Awaiting Verification</option>
-                <option value="resolved">Resolved</option>
+                <option value="in_progress">In progress</option>
+                <option value="awaiting_verification">Please confirm</option>
+                <option value="resolved">Fixed</option>
                 <option value="reopened">Reopened</option>
               </select>
             </div>
@@ -396,7 +399,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 id="admin-priority-filter"
                 value={priorityFilter}
                 onChange={(e) => setPriorityFilter(e.target.value)}
-                className="w-full p-2 bg-surface-muted border border-line rounded-control font-medium focus:outline-hidden focus:ring-2 focus:ring-brand-500 focus:border-brand-400"
+                className="w-full rounded-control border border-line bg-surface-muted p-2 font-medium focus:border-brand-400 focus:outline-hidden focus:ring-2 focus:ring-brand-500"
               >
                 <option value="All">All Priorities</option>
                 <option value="Critical">Critical</option>
@@ -408,79 +411,79 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           </div>
         </div>
 
-        {/* Master Table / Empty State */}
         {filtered.length === 0 ? (
-          <div className="p-12 text-center text-slate-500">
-            {tickets.length === 0 ? (
-              <Inbox className="w-10 h-10 mx-auto text-slate-300 mb-2" aria-hidden="true" />
-            ) : (
-              <SearchX className="w-10 h-10 mx-auto text-slate-300 mb-2" aria-hidden="true" />
-            )}
-            <h3 className="font-bold text-slate-800 text-sm">
-              {tickets.length === 0 ? 'No tickets logged yet' : 'No tickets match your filters'}
-            </h3>
-            <p className="text-xs text-slate-500 mt-1">
-              {tickets.length === 0
+          <EmptyState
+            className="border-0"
+            icon={
+              tickets.length === 0 ? (
+                <Inbox className="h-6 w-6" aria-hidden="true" />
+              ) : (
+                <SearchX className="h-6 w-6" aria-hidden="true" />
+              )
+            }
+            title={tickets.length === 0 ? 'No tickets logged yet' : 'No tickets match your filters'}
+            description={
+              tickets.length === 0
                 ? 'New maintenance reports will appear here once students submit them.'
-                : 'Try clearing the search or changing the department, status, or priority filters.'}
-            </p>
-          </div>
+                : 'Try clearing the search or changing the department, status, or priority filters.'
+            }
+          />
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs min-w-[720px]">
+            <table className="w-full min-w-[720px] text-left text-sm">
               <caption className="sr-only">
                 All maintenance tickets with department, priority, location, status, and technician
               </caption>
-              <thead className="bg-surface-muted text-slate-600 font-bold border-b border-line">
+              <thead className="border-b border-line bg-surface-muted text-xs text-slate-600">
                 <tr>
-                  <th scope="col" className="py-3 px-4">
+                  <th scope="col" className="px-4 py-3 font-semibold">
                     Ticket &amp; Defect
                   </th>
-                  <th scope="col" className="py-3 px-4">
+                  <th scope="col" className="px-4 py-3 font-semibold">
                     Department &amp; Priority
                   </th>
-                  <th scope="col" className="py-3 px-4">
+                  <th scope="col" className="px-4 py-3 font-semibold">
                     Campus Location
                   </th>
-                  <th scope="col" className="py-3 px-4">
-                    Status &amp; AI Check
+                  <th scope="col" className="px-4 py-3 font-semibold">
+                    Status
                   </th>
-                  <th scope="col" className="py-3 px-4">
+                  <th scope="col" className="px-4 py-3 font-semibold">
                     Technician
                   </th>
-                  <th scope="col" className="py-3 px-4 text-right">
+                  <th scope="col" className="px-4 py-3 text-right font-semibold">
                     Actions
                   </th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-line text-slate-700">
                 {filtered.map((ticket) => (
-                  <tr key={ticket.id} className="hover:bg-surface-muted transition-colors">
-                    <td className="py-3 px-4">
+                  <tr key={ticket.id} className="transition-colors hover:bg-surface-muted">
+                    <td className="px-4 py-3">
                       <div className="flex items-center gap-2">
                         <TicketIdChip id={ticket.id} />
-                        <span className="font-semibold text-slate-900 truncate max-w-xs">
+                        <span className="max-w-xs truncate font-semibold text-slate-900">
                           {ticket.aiAssessment.title}
                         </span>
                       </div>
-                      <span className="text-[11px] text-slate-500 line-clamp-1 mt-0.5">
+                      <span className="mt-0.5 line-clamp-1 text-xs text-slate-500">
                         {ticket.description}
                       </span>
                     </td>
 
-                    <td className="py-3 px-4">
+                    <td className="px-4 py-3">
                       <div className="flex flex-wrap items-center gap-1.5">
-                        <span className="font-semibold text-slate-800">{ticket.department}</span>
+                        <CategoryPill department={ticket.department} />
                         <PriorityBadge priority={ticket.aiAssessment.priority} />
                       </div>
                     </td>
 
-                    <td className="py-3 px-4">
+                    <td className="px-4 py-3">
                       <div className="font-medium text-slate-800">{ticket.location.building}</div>
-                      <span className="text-[11px] text-slate-500">{ticket.location.room}</span>
+                      <span className="text-xs text-slate-500">{ticket.location.room}</span>
                     </td>
 
-                    <td className="py-3 px-4">
+                    <td className="px-4 py-3">
                       <div className="flex flex-wrap items-center gap-1.5">
                         <StatusBadge
                           status={ticket.status}
@@ -488,21 +491,21 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                             ticket.status === 'awaiting_verification' || ticket.status === 'escalated'
                           }
                         />
-                        {ticket.isSafetyCritical && <SafetyBadge />}
+                        {ticket.isSafetyCritical && <UrgentBadge />}
                       </div>
                       {ticket.aiAssessment.needsHumanReview && (
-                        <div className="text-[10px] text-critical-600 font-bold flex items-center gap-0.5 mt-1">
-                          <AlertTriangle className="w-3 h-3 shrink-0" aria-hidden="true" />
+                        <div className="mt-1 flex items-center gap-1 text-xs font-semibold text-critical-600">
+                          <AlertTriangle className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
                           <span>Flagged for human review</span>
                         </div>
                       )}
                     </td>
 
-                    <td className="py-3 px-4 text-slate-600">
+                    <td className="px-4 py-3 text-slate-600">
                       {ticket.assignedTechnician || <span className="text-slate-400">Unassigned</span>}
                     </td>
 
-                    <td className="py-3 px-4 text-right">
+                    <td className="px-4 py-3 text-right">
                       <div className="inline-flex items-center gap-1.5">
                         <label htmlFor={`reassign-${ticket.id}`} className="sr-only">
                           Reassign {ticket.id} department
@@ -512,7 +515,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                           value={ticket.department}
                           onChange={(e) => onReassignTicket(ticket, e.target.value as Department)}
                           title="Reassign department"
-                          className="p-1.5 bg-surface-muted border border-line rounded-control text-xs font-medium focus:outline-hidden focus:ring-2 focus:ring-brand-500"
+                          className="rounded-control border border-line bg-surface-muted p-2 text-sm font-medium focus:outline-hidden focus:ring-2 focus:ring-brand-500"
                         >
                           {departments.map((d) => (
                             <option key={d} value={d}>
@@ -520,13 +523,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                             </option>
                           ))}
                         </select>
-                        <button
-                          type="button"
-                          onClick={() => onSelectTicket(ticket)}
-                          className="px-2.5 py-1 bg-surface-muted hover:bg-brand-50 text-brand-700 border border-line font-semibold rounded-control text-xs transition-colors whitespace-nowrap"
-                        >
-                          Audit &amp; Evidence
-                        </button>
+                        <Button type="button" variant="secondary" size="sm" onClick={() => onSelectTicket(ticket)}>
+                          View details
+                        </Button>
                       </div>
                     </td>
                   </tr>
@@ -535,7 +534,56 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
             </table>
           </div>
         )}
-      </div>
+      </Card>
+
+      {/* Admin-only technical details, collapsed by default. */}
+      <details className="rounded-card border border-line bg-surface shadow-card">
+        <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-5 py-4 text-sm font-semibold text-slate-700">
+          <span className="flex items-center gap-2">
+            <ShieldCheck className="h-4 w-4 text-slate-400" aria-hidden="true" />
+            Details
+          </span>
+          <span className="text-xs font-normal text-slate-400">Internal</span>
+        </summary>
+        <div className="space-y-4 border-t border-line px-5 py-4">
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div className="rounded-control border border-line bg-surface-muted p-3">
+              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                AI-assisted triage
+              </p>
+              <dl className="mt-2 space-y-1 text-sm text-slate-700">
+                <div className="flex items-center justify-between gap-2">
+                  <dt className="text-slate-500">Provider</dt>
+                  <dd className="font-medium">{providerLabel(analysisMeta?.provider)}</dd>
+                </div>
+                <div className="flex items-center justify-between gap-2">
+                  <dt className="text-slate-500">Model</dt>
+                  <dd className="font-medium">{analysisMeta?.modelId ?? 'Not recorded'}</dd>
+                </div>
+              </dl>
+            </div>
+            <div className="rounded-control border border-line bg-surface-muted p-3">
+              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                Repair verification engine
+              </p>
+              <dl className="mt-2 space-y-1 text-sm text-slate-700">
+                <div className="flex items-center justify-between gap-2">
+                  <dt className="text-slate-500">Provider</dt>
+                  <dd className="font-medium">{providerLabel(verificationMeta?.provider)}</dd>
+                </div>
+                <div className="flex items-center justify-between gap-2">
+                  <dt className="text-slate-500">Model</dt>
+                  <dd className="font-medium">{verificationMeta?.modelId ?? 'Not recorded'}</dd>
+                </div>
+              </dl>
+            </div>
+          </div>
+          <Button type="button" variant="secondary" size="sm" onClick={onOpenTour}>
+            <PlayCircle className="h-4 w-4" aria-hidden="true" />
+            Product tour
+          </Button>
+        </div>
+      </details>
     </div>
   );
 };

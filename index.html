@@ -2,14 +2,36 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%232563eb' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z'/></svg>" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>CampusCare - Smart Campus Issue Resolution</title>
-    <meta name="description" content="Smart campus maintenance platform powered by AI. Report it with photo &amp; natural language, route it deterministically to maintenance queues, track repair, and verify before-and-after evidence." />
-    <meta property="og:title" content="CampusCare - Smart Campus Issue Resolution" />
-    <meta property="og:description" content="Smart campus maintenance platform powered by AI. Report it with photo &amp; natural language, route it deterministically to maintenance queues, track repair, and verify before-and-after evidence." />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <title>CampusCare · Campus maintenance</title>
+    <meta
+      name="description"
+      content="CampusCare lets students report campus maintenance issues and follow every repair from report to confirmation."
+    />
+
+    <!-- PWA -->
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <meta name="theme-color" content="#0f766e" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <meta name="apple-mobile-web-app-title" content="CampusCare" />
+
+    <!-- Icons -->
+    <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png" />
+    <link rel="icon" type="image/png" sizes="192x192" href="/icons/icon-192.png" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+
+    <!-- Social preview -->
+    <meta property="og:title" content="CampusCare · Campus maintenance" />
+    <meta
+      property="og:description"
+      content="Report campus maintenance issues and follow every repair from report to confirmation."
+    />
+    <meta property="og:image" content="/icons/icon-512.png" />
+    <meta property="og:type" content="website" />
   </head>
-  <body class="bg-slate-50 text-slate-900 antialiased min-h-screen">
+  <body class="bg-canvas text-slate-900 antialiased min-h-screen">
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>

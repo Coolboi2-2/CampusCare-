@@ -6,10 +6,18 @@ import {
   ArrowRight,
   MapPin,
   RotateCcw,
-  ShieldAlert,
+  User,
+  Wrench,
+  Inbox,
+  Check,
 } from 'lucide-react';
 import { Ticket } from '../types';
-import { StatusBadge, ModeBadge, SafetyBadge, TicketIdChip } from './ui/Badges';
+import { StatusBadge, CategoryPill, UrgentBadge } from './ui/Badges';
+import { Button } from './ui/Button';
+import { Card } from './ui/Card';
+import { EmptyState } from './ui/EmptyState';
+import { ProgressTracker } from './ui/ProgressTracker';
+import { formatRelative, handlerName, estimateFixTime, locationLabel } from '../lib/status';
 
 interface StudentPortalProps {
   tickets: Ticket[];
@@ -37,201 +45,226 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
     return true;
   });
 
-  const tabs: { key: typeof filterTab; label: string; count: number }[] = [
-    { key: 'all', label: 'All Reports', count: tickets.length },
-    { key: 'active', label: 'Active In Progress', count: tickets.filter((t) => t.status !== 'resolved').length },
-    { key: 'resolved', label: 'Resolved', count: tickets.filter((t) => t.status === 'resolved').length },
+  const tabs: { key: typeof filterTab; label: string }[] = [
+    { key: 'all', label: 'All' },
+    { key: 'active', label: 'Open' },
+    { key: 'resolved', label: 'Fixed' },
   ];
 
+  const openCount = tickets.filter((t) => t.status !== 'resolved').length;
+  const waitingCount = tickets.filter((t) => t.status === 'awaiting_verification').length;
+  const fixedCount = tickets.filter((t) => t.status === 'resolved').length;
+
+  const recentResolved = tickets
+    .filter((t) => t.status === 'resolved')
+    .slice()
+    .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime())
+    .slice(0, 3);
+
   return (
-    <div className="space-y-6">
-      {/* Compact page header */}
-      <div className="bg-surface rounded-card border border-line shadow-card p-5 sm:p-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+    <div className="space-y-8">
+      {/* Page header */}
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div className="max-w-2xl">
-          <span className="text-[11px] font-bold uppercase tracking-wider text-brand-600">
-            Student Maintenance Portal
-          </span>
-          <h1 className="mt-1 text-xl sm:text-2xl font-extrabold tracking-tight text-slate-900">
-            CampusCare Student Self-Service
-          </h1>
-          <p className="mt-2 text-xs sm:text-sm text-slate-500 leading-relaxed">
-            Report maintenance issues with photos &amp; natural descriptions. Review before-and-after
-            photographic evidence, and confirm verified repairs with institutional accountability.
+          <h1 className="text-2xl font-bold tracking-tight text-slate-900 sm:text-3xl">My issues</h1>
+          <p className="mt-2 text-sm leading-relaxed text-slate-500">
+            Report anything that needs fixing around campus — a leak, a broken light, a wobbly desk —
+            and follow it here from report to repair.
           </p>
         </div>
-
-        <button
-          onClick={onOpenReport}
-          className="inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-control bg-brand-600 hover:bg-brand-700 text-white text-xs font-bold shadow-card transition-colors active:scale-95 shrink-0"
-        >
-          <PlusCircle className="w-4 h-4" />
-          <span>Report Issue</span>
-        </button>
-      </div>
-
-      {/* Filter Tabs & Count */}
-      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 border-b border-line pb-3">
-        <div className="flex items-center gap-1 bg-surface-muted p-1 rounded-control border border-line">
-          {tabs.map((tab) => (
-            <button
-              key={tab.key}
-              onClick={() => setFilterTab(tab.key)}
-              aria-pressed={filterTab === tab.key}
-              className={`px-3 py-1.5 rounded-control text-xs font-semibold transition-colors ${
-                filterTab === tab.key
-                  ? 'bg-surface text-brand-700 shadow-xs border border-line'
-                  : 'text-slate-600 hover:text-slate-900'
-              }`}
-            >
-              {tab.label} ({tab.count})
-            </button>
-          ))}
+        <div className="hidden shrink-0 sm:flex">
+          <Button onClick={onOpenReport}>
+            <PlusCircle className="h-4 w-4" aria-hidden="true" />
+            Report an issue
+          </Button>
         </div>
-
-        <span className="text-xs text-slate-500 font-medium">
-          Showing {filteredTickets.length} campus incidents
-        </span>
       </div>
 
-      {/* Tickets List */}
-      <div className="space-y-4">
-        {filteredTickets.length === 0 ? (
-          <div className="bg-surface rounded-card border border-line shadow-card p-12 text-center">
-            <CheckCircle2 className="w-10 h-10 mx-auto text-success-500 mb-2" />
-            <h2 className="font-bold text-slate-800 text-sm">No unresolved tickets in this view</h2>
-            <p className="text-xs text-slate-500 mt-1">
-              All reported campus facilities are operating normally or have been resolved.
-            </p>
-          </div>
+      {/* Summary strip */}
+      <div className="grid grid-cols-3 gap-3">
+        <Card className="p-4">
+          <p className="text-xs font-medium text-slate-500">Open</p>
+          <p className="mt-1 text-2xl font-bold text-slate-900">{openCount}</p>
+        </Card>
+        <Card className={`p-4 ${waitingCount > 0 ? 'bg-brand-50 border-brand-200' : ''}`}>
+          <p className="text-xs font-medium text-slate-500">Waiting on you</p>
+          <p className="mt-1 text-2xl font-bold text-slate-900">{waitingCount}</p>
+        </Card>
+        <Card className="p-4">
+          <p className="text-xs font-medium text-slate-500">Fixed</p>
+          <p className="mt-1 text-2xl font-bold text-slate-900">{fixedCount}</p>
+        </Card>
+      </div>
+
+      {/* Filter segmented control */}
+      <div className="inline-flex items-center gap-1 rounded-control border border-line bg-surface-muted p-1">
+        {tabs.map((tab) => (
+          <button
+            key={tab.key}
+            type="button"
+            onClick={() => setFilterTab(tab.key)}
+            aria-pressed={filterTab === tab.key}
+            className={`rounded-control px-4 py-2 text-sm font-semibold transition-colors ${
+              filterTab === tab.key
+                ? 'bg-surface text-brand-700 shadow-card'
+                : 'text-slate-600 hover:text-slate-900'
+            }`}
+          >
+            {tab.label}
+          </button>
+        ))}
+      </div>
+
+      {/* Ticket list */}
+      {filteredTickets.length === 0 ? (
+        tickets.length === 0 ? (
+          <EmptyState
+            icon={<Inbox className="h-6 w-6" aria-hidden="true" />}
+            title="No open issues. Everything's in order."
+            description="If something needs fixing, report it and we'll keep you posted from report to repair."
+          />
         ) : (
-          filteredTickets.map((ticket) => {
-            const statusLabel =
-              ticket.status === 'awaiting_verification'
-                ? ticket.isSafetyCritical
-                  ? 'Awaiting Safety Review'
-                  : 'Awaiting Your Verification'
-                : undefined;
-            const isAwaitingVerification = ticket.status === 'awaiting_verification';
-            const latestVerif = ticket.latestVerification;
+          <EmptyState
+            icon={<CheckCircle2 className="h-6 w-6" aria-hidden="true" />}
+            title="Nothing here yet."
+            description="Nothing matches this filter right now. Try another view."
+          />
+        )
+      ) : (
+        <div className="space-y-4">
+          {filteredTickets.map((ticket) => {
+            const isAwaiting = ticket.status === 'awaiting_verification';
             const canConfirm =
-              isAwaitingVerification &&
+              isAwaiting &&
               !ticket.isSafetyCritical &&
-              (latestVerif ? latestVerif.allowedToRequestConfirmation : false);
+              (ticket.latestVerification
+                ? ticket.latestVerification.allowedToRequestConfirmation
+                : false);
 
             return (
               <article
                 key={ticket.id}
-                className={`rounded-card border shadow-card transition-shadow hover:shadow-card-hover p-4 sm:p-5 flex flex-col md:flex-row items-start md:items-center justify-between gap-4 ${
-                  isAwaitingVerification
-                    ? 'bg-accent-50/40 border-accent-200 ring-2 ring-accent-100'
-                    : 'bg-surface border-line'
+                className={`rounded-card border shadow-card p-4 transition-shadow hover:shadow-card-hover sm:p-5 ${
+                  isAwaiting ? 'border-confirm-200 bg-confirm-50' : 'border-line bg-surface'
                 }`}
               >
-                {/* Left: Core Details */}
-                <div className="flex items-start gap-4 flex-1 min-w-0">
-                  <div className="relative w-20 h-20 rounded-control overflow-hidden bg-slate-100 border border-line shrink-0">
+                <div className="flex items-start gap-4">
+                  <div className="relative h-20 w-20 shrink-0 overflow-hidden rounded-control border border-line bg-slate-100">
                     <img
                       src={ticket.beforePhotoUrl}
                       alt={`Reported issue photo: ${ticket.aiAssessment.title}`}
                       loading="lazy"
-                      className="w-full h-full object-cover"
+                      className="h-full w-full object-cover"
                       onError={(e) => {
                         if (e.currentTarget.src !== FALLBACK_PHOTO) e.currentTarget.src = FALLBACK_PHOTO;
                       }}
                     />
-                    <span className="absolute bottom-1 left-1 bg-black/60 text-white text-[9px] px-1 rounded-sm uppercase font-mono">
+                    <span className="absolute bottom-1 left-1 rounded-sm bg-slate-900/70 px-1.5 py-0.5 text-xs font-medium text-white">
                       Before
                     </span>
                   </div>
 
-                  <div className="space-y-1.5 min-w-0">
+                  <div className="min-w-0 flex-1 space-y-2">
                     <div className="flex flex-wrap items-center gap-2">
-                      <TicketIdChip id={ticket.id} />
-                      <StatusBadge
-                        status={ticket.status}
-                        label={statusLabel}
-                        pulse={isAwaitingVerification && !ticket.isSafetyCritical}
-                      />
-                      <span className="inline-flex items-center text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full border border-line bg-surface-muted text-slate-600">
-                        {ticket.department}
-                      </span>
-
-                      {ticket.isSafetyCritical && <SafetyBadge />}
-
-                      {ticket.issueAnalysisMetadata && (
-                        <ModeBadge provider={ticket.issueAnalysisMetadata.provider} />
-                      )}
+                      <StatusBadge status={ticket.status} />
+                      <CategoryPill department={ticket.department} />
+                      {ticket.isSafetyCritical && <UrgentBadge />}
                     </div>
 
-                    <h2 className="font-bold text-slate-900 text-sm leading-snug">
+                    <h2 className="text-base font-semibold leading-snug text-slate-900">
                       {ticket.aiAssessment.title}
                     </h2>
-                    <p className="text-xs text-slate-600 line-clamp-1">{ticket.description}</p>
+                    <p className="line-clamp-2 text-sm text-slate-600">{ticket.description}</p>
 
-                    <div className="flex flex-wrap items-center gap-3 text-[11px] text-slate-500 pt-1">
-                      <span className="flex items-center gap-1">
-                        <MapPin className="w-3 h-3 text-slate-400" />
-                        {ticket.location.building} &bull; {ticket.location.room}
+                    <div className="flex flex-wrap items-center gap-x-4 gap-y-1 pt-1 text-xs text-slate-500">
+                      <span className="inline-flex items-center gap-1.5">
+                        <MapPin className="h-3.5 w-3.5 text-slate-400" aria-hidden="true" />
+                        {locationLabel(ticket)}
                       </span>
-                      <span className="flex items-center gap-1">
-                        <Clock className="w-3 h-3 text-slate-400" />
-                        {new Date(ticket.createdAt).toLocaleDateString()} at{' '}
-                        {new Date(ticket.createdAt).toLocaleTimeString([], {
-                          hour: '2-digit',
-                          minute: '2-digit',
-                        })}
+                      <span className="inline-flex items-center gap-1.5">
+                        <Clock className="h-3.5 w-3.5 text-slate-400" aria-hidden="true" />
+                        {formatRelative(ticket.createdAt)}
                       </span>
-                      {ticket.assignedTechnician && (
-                        <span className="text-slate-700 font-medium">
-                          Assigned: {ticket.assignedTechnician}
-                        </span>
-                      )}
+                      <span className="inline-flex items-center gap-1.5">
+                        <User className="h-3.5 w-3.5 text-slate-400" aria-hidden="true" />
+                        {handlerName(ticket)}
+                      </span>
+                      <span className="inline-flex items-center gap-1.5">
+                        <Wrench className="h-3.5 w-3.5 text-slate-400" aria-hidden="true" />
+                        {estimateFixTime(ticket)}
+                      </span>
                     </div>
                   </div>
                 </div>
 
-                {/* Right: Actions */}
-                <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 w-full md:w-auto pt-3 md:pt-0 border-t md:border-t-0 border-line shrink-0">
-                  {isAwaitingVerification ? (
-                    <>
-                      {canConfirm ? (
-                        <button
-                          onClick={() => onOpenConfirmModal(ticket)}
-                          className="inline-flex items-center justify-center gap-1.5 px-4 py-2 rounded-control bg-success-600 hover:bg-success-700 text-white text-xs font-bold transition-colors"
-                        >
-                          <CheckCircle2 className="w-3.5 h-3.5" />
-                          <span>Confirm Resolved</span>
-                        </button>
-                      ) : (
-                        <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-critical-700 bg-critical-50 px-2.5 py-1.5 rounded-control border border-critical-200">
-                          <ShieldAlert className="w-3.5 h-3.5 text-critical-600 shrink-0" />
-                          <span>Admin Review Required</span>
-                        </span>
+                {/* Awaiting your confirmation */}
+                {isAwaiting && (
+                  <div className="mt-4 flex flex-col gap-3 rounded-control border border-confirm-200 bg-surface/70 p-3 sm:flex-row sm:items-center">
+                    <p className="flex-1 text-sm font-medium text-slate-700">
+                      {canConfirm
+                        ? 'The crew says this is fixed. Did it work?'
+                        : 'This one needs a staff review before it can be confirmed.'}
+                    </p>
+                    <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                      {canConfirm && (
+                        <Button onClick={() => onOpenConfirmModal(ticket)}>
+                          <CheckCircle2 className="h-4 w-4" aria-hidden="true" />
+                          Confirm it's fixed
+                        </Button>
                       )}
+                      <Button variant="secondary" onClick={() => onOpenReopenModal(ticket)}>
+                        <RotateCcw className="h-4 w-4" aria-hidden="true" />
+                        Not fixed yet
+                      </Button>
+                    </div>
+                  </div>
+                )}
 
-                      <button
-                        onClick={() => onOpenReopenModal(ticket)}
-                        className="inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-control bg-surface border border-critical-200 text-critical-700 hover:bg-critical-50 text-xs font-semibold transition-colors"
-                      >
-                        <RotateCcw className="w-3.5 h-3.5" />
-                        <span>Reopen</span>
-                      </button>
-                    </>
-                  ) : null}
-
-                  <button
-                    onClick={() => onSelectTicket(ticket)}
-                    className="inline-flex items-center justify-center gap-1 px-4 py-2 rounded-control bg-surface border border-line text-slate-700 hover:bg-slate-50 text-xs font-semibold transition-colors"
-                  >
-                    <span>Audit &amp; Evidence</span>
-                    <ArrowRight className="w-3.5 h-3.5" />
-                  </button>
+                <div className="mt-4 flex items-center justify-end border-t border-line pt-3">
+                  <Button variant="ghost" size="sm" onClick={() => onSelectTicket(ticket)}>
+                    View details
+                    <ArrowRight className="h-4 w-4" aria-hidden="true" />
+                  </Button>
                 </div>
+
+                <ProgressTracker ticket={ticket} className="mt-4" />
               </article>
             );
-          })
-        )}
-      </div>
+          })}
+        </div>
+      )}
+
+      {/* Recently resolved */}
+      {filterTab === 'all' && recentResolved.length > 0 && (
+        <section className="space-y-3">
+          <div>
+            <h2 className="text-base font-semibold text-slate-900">Recently resolved</h2>
+            <p className="mt-0.5 text-sm text-slate-500">
+              Fixed and confirmed by students this week.
+            </p>
+          </div>
+          <div className="space-y-2">
+            {recentResolved.map((ticket) => (
+              <Card key={ticket.id} className="flex items-center gap-3 p-4">
+                <span
+                  className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-success-50 text-success-600"
+                  aria-hidden="true"
+                >
+                  <Check className="h-4 w-4" />
+                </span>
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-sm font-medium text-slate-800">
+                    {ticket.aiAssessment.title}
+                  </p>
+                  <p className="truncate text-xs text-slate-500">
+                    {locationLabel(ticket)} · {formatRelative(ticket.createdAt)}
+                  </p>
+                </div>
+              </Card>
+            ))}
+          </div>
+        </section>
+      )}
     </div>
   );
 };

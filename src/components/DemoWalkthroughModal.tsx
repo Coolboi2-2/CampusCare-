@@ -2,19 +2,17 @@ import React, { useState } from 'react';
 import {
   X,
   PlayCircle,
-  Sparkles,
+  ArrowLeft,
   ArrowRight,
-  Clock,
-  Layers,
   Wrench,
   GraduationCap,
-  RotateCcw,
   Shield,
-  Loader2,
   ShieldAlert,
   FlaskConical,
 } from 'lucide-react';
-import { Ticket, UserRole } from '../types';
+import { UserRole } from '../types';
+import { Button } from './ui/Button';
+import { Card } from './ui/Card';
 
 interface DemoWalkthroughModalProps {
   isOpen: boolean;
@@ -26,57 +24,51 @@ interface DemoWalkthroughModalProps {
 const DEMO_STEPS = [
   {
     step: 1,
-    time: '0–15s',
-    title: 'Report Naturally',
+    title: 'Report an issue',
     role: 'student' as UserRole,
-    headline: 'Student uploads washbasin leak photo & describes problem',
-    desc: 'Student does not need to diagnose the technical fault. They describe: "Water is leaking under the sink washbasin in Oak Hall Room 308" and attach a photo.',
-    actionLabel: 'View Student Report Intake',
+    headline: 'A student describes the problem and adds a photo',
+    desc: 'No need to diagnose the fault. A student describes: "Water is leaking under the sink washbasin in Oak Hall Room 308" and attaches a photo.',
+    actionLabel: 'View student report',
   },
   {
     step: 2,
-    time: '15–30s',
-    title: 'Validate Schema',
+    title: 'Route it',
     role: 'admin' as UserRole,
-    headline: 'Gemini 3.8 Flash extracts defect, observations, priority & validates Zod contract',
-    desc: 'Strict Zod schema contract validates output. Department recommended: Plumbing. Priority: Medium. Safety checks evaluated before queue placement.',
-    actionLabel: 'Inspect Schema Output & Triage',
+    headline: 'CampusCare suggests the right department',
+    desc: 'The report is matched to Plumbing at Medium priority, then placed in the maintenance queue for the team to pick up.',
+    actionLabel: 'See how it is routed',
   },
   {
     step: 3,
-    time: '30–45s',
-    title: 'Assign & Accept',
+    title: 'Assign it',
     role: 'technician' as UserRole,
-    headline: 'Technician Marcus Vance accepts the work order in the Plumbing queue',
-    desc: 'Maintenance staff receives work order in their department queue and transitions status to "In Progress" with verifiable audit trail timestamps.',
-    actionLabel: 'Open Technician Work Queue',
+    headline: 'A technician accepts the work order',
+    desc: 'The maintenance team sees the job in their Plumbing queue and marks it In progress, with a timestamp for the record.',
+    actionLabel: 'Open maintenance queue',
   },
   {
     step: 4,
-    time: '45–65s',
-    title: 'Repair & Evidence',
+    title: 'Fix it',
     role: 'technician' as UserRole,
-    headline: 'Technician completes repair & uploads after-photo',
-    desc: 'Technician replaces worn gasket, tightens compression joints, pressure tests for 5 minutes, and uploads after-photo evidence.',
-    actionLabel: 'Upload After-Photo & Submit',
+    headline: 'The repair is completed and photographed',
+    desc: 'The technician replaces the worn gasket, tightens the joints, pressure tests for five minutes, and uploads an after-photo.',
+    actionLabel: 'View repair flow',
   },
   {
     step: 5,
-    time: '65–80s',
-    title: 'Verify with AI',
+    title: 'Check it',
     role: 'student' as UserRole,
-    headline: 'Gemini compares Before & After photos and evaluates evidence quality',
-    desc: 'AI evaluates visual outcome (Improved), evidence quality (Clear), checks for residual defects, and generates an immutable RepairAssessmentRecord.',
-    actionLabel: 'Review Before & After Comparison',
+    headline: 'Before and after photos are compared',
+    desc: 'The photos are checked for a clear improvement before the student is asked to confirm the fix.',
+    actionLabel: 'See before & after',
   },
   {
     step: 6,
-    time: '80–90s',
-    title: 'Resolve or Reopen',
+    title: 'Confirm it',
     role: 'student' as UserRole,
-    headline: 'Evidence-based sign-off: Student confirms resolution or reopens',
-    desc: 'Authorized people confirm completion. If problem persists, student reopens ticket while preserving all previous repair attempts and photographic evidence.',
-    actionLabel: 'Test Resolution & Reopen Flow',
+    headline: 'The student confirms the fix or reopens',
+    desc: 'If the problem is gone, the ticket is closed. If not, it is reopened with the repair history and photos kept.',
+    actionLabel: 'See confirm & reopen',
   },
 ];
 
@@ -120,7 +112,7 @@ export const DemoWalkthroughModal: React.FC<DemoWalkthroughModalProps> = ({
       }
 
       if (stepNumber === 4 || stepNumber === 5) {
-        // Complete repair & run AI verification
+        // Complete repair & run verification
         await fetch(`/api/tickets/${ticketId}/repair`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -155,7 +147,7 @@ export const DemoWalkthroughModal: React.FC<DemoWalkthroughModalProps> = ({
             status: 'in_progress',
             actor: 'Marcus Vance',
             role: 'technician',
-            notes: 'Preparing duplicate-evidence adversarial test.',
+            notes: 'Preparing duplicate-evidence test.',
           }),
         });
         await fetch(`/api/tickets/CC-2026-1042/repair`, {
@@ -163,7 +155,7 @@ export const DemoWalkthroughModal: React.FC<DemoWalkthroughModalProps> = ({
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             technicianName: 'Marcus Vance',
-            workNotes: 'Submitted duplicate image asset to test adversarial safety gate.',
+            workNotes: 'Submitted duplicate image asset to test the safety check.',
             afterPhotoUrl: 'https://images.unsplash.com/photo-1584622650111-993a426fbf0a?auto=format&fit=crop&w=800&q=80',
             role: 'technician',
           }),
@@ -188,31 +180,26 @@ export const DemoWalkthroughModal: React.FC<DemoWalkthroughModalProps> = ({
         role="dialog"
         aria-modal="true"
         aria-labelledby="demo-tour-title"
-        className="bg-surface rounded-card max-w-2xl w-full p-6 sm:p-7 shadow-2xl border border-line relative my-8"
+        className="bg-surface rounded-card max-w-2xl w-full p-6 sm:p-7 shadow-card border border-line relative my-8"
       >
         {/* Header */}
         <div className="flex items-center justify-between pb-4 border-b border-line gap-3">
           <div className="flex items-center gap-3 min-w-0">
-            <div className="w-10 h-10 rounded-card bg-gradient-to-tr from-brand-700 to-accent-600 text-white flex items-center justify-center shadow-md shrink-0">
+            <div className="w-10 h-10 rounded-card bg-brand-50 text-brand-700 flex items-center justify-center shrink-0">
               <PlayCircle className="w-5 h-5" />
             </div>
             <div className="min-w-0">
-              <div className="flex items-center gap-2">
-                <h2 id="demo-tour-title" className="text-base font-bold text-slate-900">
-                  90-Second Walkthrough: AI Reliability
-                </h2>
-                <span className="hidden sm:inline text-[10px] font-bold uppercase px-2 py-0.5 rounded-full bg-accent-100 text-accent-700">
-                  Engineering Milestone
-                </span>
-              </div>
-              <p className="text-xs text-slate-500">
-                Gemini recommends • Validated logic decides • People confirm
+              <h2 id="demo-tour-title" className="text-base font-bold text-slate-900">
+                How CampusCare works
+              </h2>
+              <p className="text-sm text-slate-500">
+                Report it. Route it. Fix it. Confirm it.
               </p>
             </div>
           </div>
           <button
             onClick={onClose}
-            aria-label="Close demo tour"
+            aria-label="Close product tour"
             className="p-1.5 rounded-control text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors shrink-0"
           >
             <X className="w-5 h-5" />
@@ -220,7 +207,7 @@ export const DemoWalkthroughModal: React.FC<DemoWalkthroughModalProps> = ({
         </div>
 
         {/* Step trackers */}
-        <div className="mt-4 grid grid-cols-6 gap-1 bg-slate-100 p-1 rounded-card">
+        <div className="mt-4 grid grid-cols-6 gap-1 bg-surface-muted p-1 rounded-card">
           {DEMO_STEPS.map((s, idx) => (
             <button
               key={s.step}
@@ -233,86 +220,82 @@ export const DemoWalkthroughModal: React.FC<DemoWalkthroughModalProps> = ({
                   : 'text-slate-500 hover:text-slate-800 font-medium'
               }`}
             >
-              <div className="text-[10px] uppercase font-mono">{s.time}</div>
-              <div className="text-xs truncate font-bold">Step {s.step}</div>
+              <div className="text-xs font-semibold">Step {s.step}</div>
+              <div className="text-xs truncate text-slate-500">{s.title}</div>
             </button>
           ))}
         </div>
 
         {/* Active step */}
-        <div className="mt-4 p-5 bg-surface-muted rounded-card border border-line space-y-3">
+        <Card className="mt-4 p-5 bg-surface-muted space-y-3">
           <div className="flex items-center justify-between gap-2">
-            <span className="text-xs font-bold uppercase tracking-wider text-brand-700 bg-brand-100/80 px-2.5 py-1 rounded-control">
-              Stage {currentStep.step} of 6 • {currentStep.time}
+            <span className="text-xs font-bold uppercase tracking-wider text-brand-700 bg-brand-50 px-2.5 py-1 rounded-control">
+              Step {currentStep.step} of 6
             </span>
             <span className="text-xs font-semibold text-slate-500 capitalize flex items-center gap-1">
-              <StepIcon className="w-4 h-4 text-brand-600" />
+              <StepIcon className="w-4 h-4 text-brand-700" />
               <span>{currentStep.role} view</span>
             </span>
           </div>
 
           <h3 className="text-base font-bold text-slate-900 leading-snug">{currentStep.headline}</h3>
 
-          <p className="text-xs text-slate-600 leading-relaxed">{currentStep.desc}</p>
+          <p className="text-sm text-slate-600 leading-relaxed">{currentStep.desc}</p>
 
           <div className="pt-2 flex items-center justify-between gap-2">
-            <button
+            <Button
+              variant="ghost"
+              size="md"
               onClick={() => setCurrentStepIdx((prev) => Math.max(0, prev - 1))}
               disabled={currentStepIdx === 0}
-              className="text-xs text-slate-500 hover:text-slate-800 font-semibold disabled:opacity-30"
             >
-              ← Previous step
-            </button>
+              <ArrowLeft className="w-4 h-4" />
+              Previous
+            </Button>
 
-            <button
+            <Button
+              variant="primary"
+              size="md"
+              loading={isSimulating}
               onClick={() => handleExecuteStep(currentStep.step)}
-              disabled={isSimulating}
-              className="inline-flex items-center gap-2 px-5 py-2.5 bg-brand-600 hover:bg-brand-700 text-white rounded-control text-xs font-bold shadow-md transition-all active:scale-95 disabled:opacity-50"
             >
-              {isSimulating ? (
-                <Loader2 className="w-3.5 h-3.5 animate-spin" />
-              ) : (
-                <Sparkles className="w-3.5 h-3.5" />
-              )}
               <span>{currentStep.actionLabel}</span>
-              <ArrowRight className="w-3.5 h-3.5" />
-            </button>
+              <ArrowRight className="w-4 h-4" />
+            </Button>
           </div>
-        </div>
+        </Card>
 
-        {/* Adversarial tests */}
-        <div className="mt-4 p-4 bg-warning-50/60 rounded-card border border-warning-200 text-xs space-y-2">
-          <div className="flex items-center justify-between gap-2">
-            <span className="flex items-center gap-1.5 text-warning-800 font-bold uppercase text-[10px] tracking-wider">
-              <FlaskConical className="w-3.5 h-3.5" />
-              Live adversarial stress tests
-            </span>
-            <span className="text-[10px] text-warning-700">Verifies the AI does not hallucinate resolution</span>
-          </div>
+        {/* Edge cases */}
+        <div className="mt-4 p-4 bg-warning-50/60 rounded-card border border-warning-200 space-y-2">
+          <span className="flex items-center gap-1.5 text-warning-800 font-bold text-xs">
+            <FlaskConical className="w-3.5 h-3.5" />
+            Edge cases
+          </span>
+          <p className="text-xs text-slate-600">
+            These make sure a repair cannot be closed with weak or unsafe evidence.
+          </p>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
             <button
               onClick={() => handleAdversarialTest('duplicate')}
               disabled={isSimulating}
-              className="p-2.5 rounded-control bg-surface hover:bg-slate-50 text-left text-[11px] border border-line transition-colors disabled:opacity-50"
+              className="p-2.5 rounded-control bg-surface hover:bg-slate-50 text-left text-xs border border-line transition-colors disabled:opacity-50"
             >
-              <div className="font-bold text-warning-800">Test: identical photo upload</div>
-              <p className="text-[10px] text-slate-500 mt-0.5">
-                Flags &ldquo;unusable evidence&rdquo; and triggers manual review.
-              </p>
+              <div className="font-bold text-warning-800">What if the same photo is uploaded twice?</div>
+              <p className="text-xs text-slate-500 mt-0.5">The repair is flagged for manual review.</p>
             </button>
 
             <button
               onClick={() => handleAdversarialTest('safety')}
               disabled={isSimulating}
-              className="p-2.5 rounded-control bg-surface hover:bg-slate-50 text-left text-[11px] border border-line transition-colors disabled:opacity-50"
+              className="p-2.5 rounded-control bg-surface hover:bg-slate-50 text-left text-xs border border-line transition-colors disabled:opacity-50"
             >
               <div className="font-bold text-critical-700 flex items-center gap-1">
-                <ShieldAlert className="w-3 h-3" />
-                Test: safety hazard protection
+                <ShieldAlert className="w-3.5 h-3.5" />
+                What if the issue is a safety hazard?
               </div>
-              <p className="text-[10px] text-slate-500 mt-0.5">
-                A critical spark issue cannot be auto-closed by a student.
+              <p className="text-xs text-slate-500 mt-0.5">
+                A sparking light cannot be closed by a student alone.
               </p>
             </button>
           </div>
@@ -320,13 +303,10 @@ export const DemoWalkthroughModal: React.FC<DemoWalkthroughModalProps> = ({
 
         {/* Footer */}
         <div className="mt-4 pt-3 border-t border-line flex items-center justify-between gap-3 text-xs text-slate-500">
-          <span className="hidden sm:inline">CampusCare AI Reliability • Zod-validated output contracts</span>
-          <button
-            onClick={onClose}
-            className="px-3.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-control font-semibold transition-colors"
-          >
+          <span className="hidden sm:inline">CampusCare · Campus maintenance service</span>
+          <Button variant="secondary" size="sm" onClick={onClose}>
             Close
-          </button>
+          </Button>
         </div>
       </div>
     </div>

@@ -1,68 +1,82 @@
 import React from 'react';
-import { Cpu, FlaskConical, ShieldAlert } from 'lucide-react';
-import { Priority, TicketStatus } from '../../types';
+import { Tag, AlertOctagon, Cpu, ClipboardCheck } from 'lucide-react';
+import { Department, Priority, TicketStatus } from '../../types';
+import { STATUS_META } from '../../lib/status';
 
 /**
- * Single source of truth for status/priority/mode colour semantics.
+ * Single source of truth for status / category / urgency colour semantics.
  * Every portal renders tickets, so these stay identical everywhere.
+ * Plain language only — no pipeline jargon, no monospace.
  */
-
-const STATUS_STYLES: Record<TicketStatus, string> = {
-  reported: 'bg-blue-100 text-blue-800 border-blue-200',
-  assigned: 'bg-brand-100 text-brand-800 border-brand-200',
-  in_progress: 'bg-warning-100 text-warning-800 border-warning-200',
-  awaiting_verification: 'bg-accent-100 text-accent-700 border-accent-200',
-  resolved: 'bg-success-100 text-success-800 border-success-200',
-  reopened: 'bg-critical-100 text-critical-800 border-critical-200',
-  escalated: 'bg-red-100 text-red-800 border-red-200',
-};
-
-const STATUS_LABELS: Record<TicketStatus, string> = {
-  reported: 'Reported / Triaged',
-  assigned: 'Assigned to Staff',
-  in_progress: 'Work In Progress',
-  awaiting_verification: 'Awaiting Verification',
-  resolved: 'Resolved & Verified',
-  reopened: 'Reopened by Student',
-  escalated: 'Escalated / Review Required',
-};
 
 export const StatusBadge: React.FC<{
   status: TicketStatus;
   label?: string;
   pulse?: boolean;
   className?: string;
-}> = ({ status, label, pulse, className = '' }) => (
+}> = ({ status, label, pulse, className = '' }) => {
+  const meta = STATUS_META[status];
+  return (
+    <span
+      className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-semibold ${meta.pill} ${
+        pulse ? 'animate-pulse' : ''
+      } ${className}`}
+    >
+      <span className={`h-1.5 w-1.5 rounded-full ${meta.dot}`} aria-hidden="true" />
+      {label ?? meta.label}
+    </span>
+  );
+};
+
+/** Department / category chip. Exactly one category chip per card. */
+export const CategoryPill: React.FC<{ department: Department; className?: string }> = ({
+  department,
+  className = '',
+}) => (
   <span
-    className={`inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full border ${STATUS_STYLES[status]} ${
-      pulse ? 'animate-pulse' : ''
-    } ${className}`}
+    className={`inline-flex items-center gap-1.5 rounded-full border border-line bg-surface-muted px-2.5 py-1 text-xs font-semibold text-slate-600 ${className}`}
   >
-    {label ?? STATUS_LABELS[status]}
+    <Tag className="h-3 w-3 text-slate-400" aria-hidden="true" />
+    {department}
   </span>
 );
 
+/** Shown only for safety-critical tickets. */
+export const UrgentBadge: React.FC<{ className?: string }> = ({ className = '' }) => (
+  <span
+    className={`inline-flex items-center gap-1 rounded-full bg-critical-600 px-2.5 py-1 text-xs font-semibold text-white ${className}`}
+    title="Safety-critical issue"
+  >
+    <AlertOctagon className="h-3.5 w-3.5" aria-hidden="true" />
+    Urgent
+  </span>
+);
+
+/** Backwards-compatible alias: safety-critical tickets read as "Urgent". */
+export const SafetyBadge = UrgentBadge;
+
 const PRIORITY_STYLES: Record<Priority, string> = {
-  Critical: 'bg-critical-100 text-critical-700 border-critical-200',
-  High: 'bg-warning-100 text-warning-800 border-warning-200',
-  Medium: 'bg-brand-50 text-brand-700 border-brand-200',
-  Low: 'bg-slate-100 text-slate-600 border-slate-200',
+  Critical: 'bg-critical-50 text-critical-700 border-critical-200',
+  High: 'bg-warning-50 text-warning-700 border-warning-200',
+  Medium: 'bg-slate-100 text-slate-600 border-slate-200',
+  Low: 'bg-slate-50 text-slate-500 border-slate-200',
 };
 
+/** Internal priority — reserved for staff/admin detail views, never card faces. */
 export const PriorityBadge: React.FC<{ priority: Priority; className?: string }> = ({
   priority,
   className = '',
 }) => (
   <span
-    className={`inline-flex items-center text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full border ${PRIORITY_STYLES[priority]} ${className}`}
+    className={`inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-semibold ${PRIORITY_STYLES[priority]} ${className}`}
   >
-    Priority: {priority}
+    {priority} priority
   </span>
 );
 
 /**
- * Distinguishes live model output from deterministic fallback. Never implies a
- * live model ran when it did not.
+ * Distinguishes live model output from deterministic fallback, in plain words.
+ * Only surfaced inside admin/staff detail panels.
  */
 export const ModeBadge: React.FC<{ provider?: string; className?: string }> = ({
   provider,
@@ -70,34 +84,27 @@ export const ModeBadge: React.FC<{ provider?: string; className?: string }> = ({
 }) =>
   provider === 'gemma' ? (
     <span
-      className={`inline-flex items-center gap-1 text-[10px] font-mono px-1.5 py-0.5 rounded border bg-success-50 text-success-800 border-success-200 ${className}`}
+      className={`inline-flex items-center gap-1.5 rounded-full border border-success-200 bg-success-50 px-2.5 py-1 text-xs font-semibold text-success-700 ${className}`}
     >
-      <Cpu className="w-3 h-3" />
-      Gemini Live
+      <Cpu className="h-3 w-3" aria-hidden="true" />
+      AI analysis
     </span>
   ) : (
     <span
-      className={`inline-flex items-center gap-1 text-[10px] font-mono px-1.5 py-0.5 rounded border bg-warning-50 text-warning-800 border-warning-200 ${className}`}
+      className={`inline-flex items-center gap-1.5 rounded-full border border-line bg-surface-muted px-2.5 py-1 text-xs font-semibold text-slate-600 ${className}`}
     >
-      <FlaskConical className="w-3 h-3" />
-      Fallback Rules
+      <ClipboardCheck className="h-3 w-3" aria-hidden="true" />
+      Standard review
     </span>
   );
 
-/** Safety-critical flag, identical across portals. */
-export const SafetyBadge: React.FC<{ className?: string }> = ({ className = '' }) => (
+/** Ticket identifier chip. Reads cleanly, never monospace. */
+export const TicketIdChip: React.FC<{ id: string; className?: string }> = ({
+  id,
+  className = '',
+}) => (
   <span
-    className={`inline-flex items-center gap-1 text-[10px] font-extrabold uppercase px-2 py-0.5 rounded-md bg-critical-600 text-white ${className}`}
-  >
-    <ShieldAlert className="w-3 h-3" />
-    Safety Critical
-  </span>
-);
-
-/** Monospace ticket identifier chip. */
-export const TicketIdChip: React.FC<{ id: string; className?: string }> = ({ id, className = '' }) => (
-  <span
-    className={`font-mono text-xs font-bold text-brand-700 bg-brand-50 px-2 py-0.5 rounded-md border border-brand-200 ${className}`}
+    className={`inline-flex items-center rounded-md border border-line bg-surface-muted px-2 py-0.5 text-xs font-semibold text-slate-500 ${className}`}
   >
     {id}
   </span>

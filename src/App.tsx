@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { UserRole, User, Ticket, Department, AuthSession } from './types';
+import React, { useEffect, useMemo, useState } from 'react';
+import { UserRole, User, Ticket, Department, AuthSession, AppNotification } from './types';
 import { Navbar } from './components/Navbar';
 import { StudentPortal } from './components/StudentPortal';
 import { MaintenancePortal } from './components/MaintenancePortal';
@@ -10,25 +10,54 @@ import { TicketDetailModal } from './components/TicketDetailModal';
 import { RepairCompletionModal } from './components/RepairCompletionModal';
 import { StudentResolutionModal } from './components/StudentResolutionModal';
 import { DemoWalkthroughModal } from './components/DemoWalkthroughModal';
+import { Button } from './components/ui/Button';
+import { ToastProvider, useToast } from './components/ui/Toast';
 import { apiFetch } from './lib/api';
-import { Building2, AlertTriangle, RefreshCw } from 'lucide-react';
+import { estimateFixTime } from './lib/status';
+import { PlusCircle, RefreshCw, WifiOff, ShieldCheck } from 'lucide-react';
 
-export function App() {
+/**
+ * Notifications are derived from real ticket state so they are never stale.
+ * Only signed-in staff get notifications — the public student view has no
+ * account, so it shows none.
+ */
+function deriveNotifications(tickets: Ticket[], role: UserRole): AppNotification[] {
+  const items: AppNotification[] = [];
+  for (const t of tickets) {
+    if (role === 'technician') {
+      if (t.status === 'assigned' || t.status === 'in_progress' || t.status === 'reopened') {
+        items.push({
+          id: `${t.id}:work`,
+          title: `Work order ${t.id}`,
+          body: `${t.aiAssessment.title} · ${t.location.building}`,
+          ticketId: t.id,
+          createdAt: t.updatedAt,
+          tone: 'info',
+        });
+      }
+    } else if (t.status === 'escalated' || t.aiAssessment?.needsHumanReview) {
+      items.push({
+        id: `${t.id}:review`,
+        title: `${t.id} needs review`,
+        body: 'Flagged for human review before it can proceed.',
+        ticketId: t.id,
+        createdAt: t.updatedAt,
+        tone: 'action',
+      });
+    }
+  }
+  return items.sort((a, b) => b.createdAt.localeCompare(a.createdAt)).slice(0, 8);
+}
+
+function AppShell() {
+  const toast = useToast();
+
   const [currentRole, setCurrentRole] = useState<UserRole>('student');
-  const [currentUser, setCurrentUser] = useState<User>({
-    id: 'u-1',
-    name: 'Aarav Patel',
-    email: 'aarav.patel@campus.edu',
-    role: 'student',
-    campusLocation: 'Block B - Oak Hall Room 308',
-  });
-
   const [tickets, setTickets] = useState<Ticket[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(false);
   const [isResetting, setIsResetting] = useState(false);
 
-  // Modals state
   const [isReportModalOpen, setIsReportModalOpen] = useState(false);
   const [isDetailModalOpen, setIsDetailModalOpen] = useState(false);
   const [selectedTicket, setSelectedTicket] = useState<Ticket | null>(null);
@@ -42,18 +71,34 @@ export function App() {
 
   const [isDemoWalkthroughOpen, setIsDemoWalkthroughOpen] = useState(false);
 
-  // Staff authentication session (admin / technician). Null = signed out.
   const [staffSession, setStaffSession] = useState<AuthSession | null>(null);
   const [sessionChecked, setSessionChecked] = useState(false);
+  const [staffSignInRole, setStaffSignInRole] = useState<'admin' | 'technician' | null>(null);
 
-  // Load tickets from server
+  const [readNotificationIds, setReadNotificationIds] = useState<Set<string>>(new Set());
+
+  const currentUser: User | null = staffSession
+    ? {
+        id: staffSession.user.id,
+        name: staffSession.user.name,
+        email: staffSession.user.email,
+        role: staffSession.user.role,
+        department: staffSession.user.department as Department | undefined,
+      }
+    : null;
+
+  const notifications = useMemo(
+    () => (staffSession ? deriveNotifications(tickets, staffSession.user.role) : []),
+    [tickets, staffSession]
+  );
+  const unreadCount = notifications.filter((n) => !readNotificationIds.has(n.id)).length;
+
   const fetchTickets = async () => {
     setLoadError(false);
     try {
       const res = await fetch('/api/tickets');
       if (!res.ok) throw new Error(`Request failed: ${res.status}`);
-      const data = await res.json();
-      setTickets(data);
+      setTickets(await res.json());
     } catch (e) {
       console.error('Error fetching tickets:', e);
       setLoadError(true);
@@ -67,7 +112,11 @@ export function App() {
     (async () => {
       try {
         const res = await apiFetch('/api/auth/session');
-        if (res.ok) setStaffSession((await res.json()) as AuthSession);
+        if (res.ok) {
+          const session = (await res.json()) as AuthSession;
+          setStaffSession(session);
+          setCurrentRole(session.user.role);
+        }
       } catch {
         /* no active staff session */
       } finally {
@@ -76,75 +125,45 @@ export function App() {
     })();
   }, []);
 
-  // Update user representation when role toggles
-  const handleRoleChange = (newRole: UserRole) => {
-    setCurrentRole(newRole);
-    if (newRole === 'student') {
-      setCurrentUser({
-        id: 'u-1',
-        name: 'Aarav Patel',
-        email: 'aarav.patel@campus.edu',
-        role: 'student',
-        campusLocation: 'Block B - Oak Hall Room 308',
-      });
-    } else if (newRole === 'technician') {
-      setCurrentUser({
-        id: 'u-2',
-        name: 'Marcus Vance',
-        email: 'm.vance@campus.edu',
-        role: 'technician',
-        department: 'Plumbing',
-      });
-    } else {
-      setCurrentUser({
-        id: 'u-3',
-        name: 'Dr. Evelyn Ward',
-        email: 'warden@campus.edu',
-        role: 'admin',
-      });
-    }
-  };
-
-  // Establish the authenticated staff session and route to the matching portal.
   const handleSignedIn = (session: AuthSession) => {
     setStaffSession(session);
     setCurrentRole(session.user.role);
-    setCurrentUser({
-      id: session.user.id,
-      name: session.user.name,
-      email: session.user.email,
-      role: session.user.role,
-      department: session.user.department as Department | undefined,
-    });
+    setStaffSignInRole(null);
+    toast(`Signed in as ${session.user.name}.`, 'success');
   };
 
   const handleSignOut = async () => {
     try {
       if (staffSession) {
-        await apiFetch('/api/auth/logout', { method: 'POST', csrfToken: staffSession.csrfToken });
+        await apiFetch('/api/auth/logout', {
+          method: 'POST',
+          csrfToken: staffSession.csrfToken,
+        });
       }
     } catch {
       /* network failure on logout still clears local state below */
     }
     setStaffSession(null);
-    if (currentRole === 'admin') handleRoleChange('student');
+    setCurrentRole('student');
+    setStaffSignInRole(null);
+    toast('Signed out.', 'info');
   };
 
-  // Reset demo state (admin only)
   const handleResetDemo = async () => {
     if (staffSession?.user.role !== 'admin') return;
     setIsResetting(true);
     try {
       await apiFetch('/api/demo/reset', { method: 'POST', csrfToken: staffSession.csrfToken });
       await fetchTickets();
+      toast('Sample data reset.', 'success');
     } catch (e) {
       console.error(e);
+      toast('Could not reset sample data.', 'error');
     } finally {
       setIsResetting(false);
     }
   };
 
-  // Start work on ticket
   const handleStartWork = async (ticketId: string) => {
     try {
       const res = await apiFetch(`/api/tickets/${ticketId}/status`, {
@@ -152,7 +171,7 @@ export function App() {
         csrfToken: staffSession?.csrfToken,
         body: JSON.stringify({
           status: 'in_progress',
-          actor: currentUser.name,
+          actor: currentUser?.name ?? '',
           role: currentRole,
           notes: 'Technician arrived at site and commenced maintenance work.',
         }),
@@ -161,13 +180,14 @@ export function App() {
         const updated = await res.json();
         setTickets((prev) => prev.map((t) => (t.id === updated.id ? updated : t)));
         if (selectedTicket?.id === updated.id) setSelectedTicket(updated);
+        toast(`Work started on ${updated.id}.`, 'success');
       }
     } catch (e) {
       console.error(e);
+      toast('Could not start work. Please try again.', 'error');
     }
   };
 
-  // Reassign department by admin (requires an authenticated admin session)
   const handleReassignTicket = async (ticket: Ticket, newDept: Department) => {
     if (staffSession?.user.role !== 'admin') return;
     try {
@@ -179,69 +199,130 @@ export function App() {
       if (res.ok) {
         const updated = await res.json();
         setTickets((prev) => prev.map((t) => (t.id === updated.id ? updated : t)));
+        toast(`${updated.id} reassigned to ${newDept}.`, 'success');
       }
     } catch (e) {
       console.error(e);
+      toast('Could not reassign the ticket.', 'error');
     }
   };
 
-  // Jump to specific ticket & role from the 90s demo walkthrough
-  const handleJumpToTicket = (ticketId: string, role: UserRole) => {
-    handleRoleChange(role);
+  const openTicket = (ticket: Ticket) => {
+    setSelectedTicket(ticket);
+    setIsDetailModalOpen(true);
+  };
+
+  const handleOpenTicketById = (ticketId: string) => {
     const found = tickets.find((t) => t.id === ticketId);
-    if (found) {
-      setSelectedTicket(found);
-      setIsDetailModalOpen(true);
+    if (found) openTicket(found);
+    const notif = notifications.find((n) => n.ticketId === ticketId);
+    if (notif) {
+      setReadNotificationIds((prev) => new Set(prev).add(notif.id));
     }
   };
+
+  const handleJumpToTicket = (ticketId: string, role: UserRole) => {
+    setCurrentRole(role);
+    const found = tickets.find((t) => t.id === ticketId);
+    if (found) openTicket(found);
+    setIsDemoWalkthroughOpen(false);
+  };
+
+  const showStaffSignIn = staffSignInRole !== null;
 
   return (
-    <div className="min-h-screen bg-canvas flex flex-col font-sans">
+    <div className="flex min-h-screen flex-col bg-canvas font-sans">
       <Navbar
         currentRole={currentRole}
-        setCurrentRole={handleRoleChange}
-        currentUser={currentUser}
-        staffSession={staffSession}
+        currentUserName={currentUser?.name ?? ''}
+        isStaff={Boolean(staffSession)}
+        notifications={notifications}
+        unreadCount={unreadCount}
+        onOpenTicket={handleOpenTicketById}
+        onMarkNotificationsRead={() =>
+          setReadNotificationIds(new Set(notifications.map((n) => n.id)))
+        }
+        onOpenStaffSignIn={() => setStaffSignInRole('admin')}
         onSignOut={handleSignOut}
-        onOpenReport={() => setIsReportModalOpen(true)}
         onOpenDemoWalkthrough={() => setIsDemoWalkthroughOpen(true)}
         onResetDemo={handleResetDemo}
         isResetting={isResetting}
       />
 
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 flex-1 w-full">
-        {loading ? (
-          <div className="py-24 flex flex-col items-center justify-center text-slate-500 gap-3">
-            <div className="w-8 h-8 rounded-full border-4 border-brand-600 border-t-transparent animate-spin" />
-            <span className="text-xs font-semibold">Connecting to CampusCare Facility Engine...</span>
-          </div>
-        ) : loadError ? (
-          <div className="py-24 flex flex-col items-center justify-center text-center gap-3">
-            <div className="w-12 h-12 rounded-card bg-critical-50 border border-critical-200 flex items-center justify-center">
-              <AlertTriangle className="w-6 h-6 text-critical-600" />
-            </div>
-            <h2 className="text-sm font-bold text-slate-900">Could not reach the CampusCare server</h2>
-            <p className="text-xs text-slate-500 max-w-md">
-              Ticket data could not be loaded. Check that the API server is running, then try again.
-            </p>
-            <button
-              onClick={fetchTickets}
-              className="mt-1 inline-flex items-center gap-2 px-4 py-2 rounded-control bg-brand-600 hover:bg-brand-700 text-white text-xs font-bold transition-colors"
+      {showStaffSignIn ? (
+        <main className="mx-auto w-full max-w-[1100px] flex-1 px-4 py-8 sm:px-6">
+          <div className="mb-2 flex justify-center">
+            <div
+              role="tablist"
+              aria-label="Staff area"
+              className="inline-flex rounded-control border border-line bg-surface p-1 shadow-card"
             >
-              <RefreshCw className="w-3.5 h-3.5" />
-              Retry
+              {(['admin', 'technician'] as const).map((role) => (
+                <button
+                  key={role}
+                  type="button"
+                  role="tab"
+                  aria-selected={staffSignInRole === role}
+                  onClick={() => setStaffSignInRole(role)}
+                  className={`rounded-control px-4 py-2 text-sm font-semibold transition-colors ${
+                    staffSignInRole === role
+                      ? 'bg-brand-600 text-white'
+                      : 'text-slate-600 hover:bg-slate-100'
+                  }`}
+                >
+                  {role === 'admin' ? 'Warden / Admin' : 'Maintenance'}
+                </button>
+              ))}
+            </div>
+          </div>
+          <StaffSignIn expectedRole={staffSignInRole} onSignedIn={handleSignedIn} />
+          <div className="mt-4 text-center">
+            <button
+              type="button"
+              onClick={() => setStaffSignInRole(null)}
+              className="text-sm font-semibold text-slate-500 hover:text-slate-700"
+            >
+              Back to student view
             </button>
           </div>
-        ) : (
-          <>
-            {currentRole === 'student' && (
+        </main>
+      ) : (
+        <>
+          <main
+            className={`mx-auto w-full max-w-[1100px] flex-1 px-4 pt-8 sm:px-6 ${
+              currentRole === 'student' ? 'pb-28 sm:pb-12' : 'pb-12'
+            }`}
+          >
+            {loading ? (
+              <div className="flex flex-col gap-5" aria-busy="true">
+                <div className="h-28 animate-pulse rounded-card border border-line bg-surface" />
+                <div className="h-40 animate-pulse rounded-card border border-line bg-surface" />
+                <div className="h-40 animate-pulse rounded-card border border-line bg-surface" />
+                <span className="sr-only">Loading issues…</span>
+              </div>
+            ) : loadError ? (
+              <div className="flex flex-col items-center justify-center gap-4 py-20 text-center">
+                <span className="flex h-12 w-12 items-center justify-center rounded-full bg-critical-50 text-critical-600">
+                  <WifiOff className="h-6 w-6" aria-hidden="true" />
+                </span>
+                <div>
+                  <h2 className="text-base font-semibold text-slate-800">
+                    Couldn&rsquo;t load your issues
+                  </h2>
+                  <p className="mt-1 max-w-md text-sm text-slate-500">
+                    Check your connection, then try again. Nothing you submitted has been lost.
+                  </p>
+                </div>
+                <Button onClick={fetchTickets}>
+                  <RefreshCw className="h-4 w-4" aria-hidden="true" />
+                  Try again
+                </Button>
+              </div>
+            ) : currentRole === 'student' ? (
               <StudentPortal
                 tickets={tickets}
                 onOpenReport={() => setIsReportModalOpen(true)}
-                onSelectTicket={(t) => {
-                  setSelectedTicket(t);
-                  setIsDetailModalOpen(true);
-                }}
+                onSelectTicket={openTicket}
                 onOpenConfirmModal={(t) => {
                   setResolutionTargetTicket(t);
                   setResolutionMode('confirm');
@@ -253,75 +334,82 @@ export function App() {
                   setIsResolutionModalOpen(true);
                 }}
               />
-            )}
-
-            {currentRole === 'technician' && (
-              <MaintenancePortal
+            ) : currentRole === 'technician' ? (
+              staffSession && staffSession.user.role === 'technician' ? (
+                <MaintenancePortal
+                  tickets={tickets}
+                  onSelectTicket={openTicket}
+                  onStartWork={handleStartWork}
+                  onOpenRepairModal={(t) => {
+                    setRepairTargetTicket(t);
+                    setIsRepairModalOpen(true);
+                  }}
+                />
+              ) : (
+                <StaffSignIn
+                  expectedRole="technician"
+                  onSignedIn={handleSignedIn}
+                />
+              )
+            ) : !staffSession || staffSession.user.role !== 'admin' ? (
+              sessionChecked ? (
+                <StaffSignIn expectedRole="admin" onSignedIn={handleSignedIn} />
+              ) : (
+                <div className="flex items-center justify-center gap-3 py-24 text-slate-500">
+                  <span className="h-6 w-6 animate-spin rounded-full border-2 border-brand-600 border-t-transparent" />
+                  <span className="text-sm font-medium">Checking your session…</span>
+                </div>
+              )
+            ) : (
+              <AdminDashboard
                 tickets={tickets}
-                onSelectTicket={(t) => {
-                  setSelectedTicket(t);
-                  setIsDetailModalOpen(true);
-                }}
-                onStartWork={handleStartWork}
-                onOpenRepairModal={(t) => {
-                  setRepairTargetTicket(t);
-                  setIsRepairModalOpen(true);
-                }}
+                csrfToken={staffSession.csrfToken}
+                onSelectTicket={openTicket}
+                onReassignTicket={handleReassignTicket}
+                onRefresh={fetchTickets}
+                onOpenTour={() => setIsDemoWalkthroughOpen(true)}
               />
             )}
+          </main>
 
-            {currentRole === 'admin' &&
-              (!staffSession || staffSession.user.role !== 'admin' ? (
-                sessionChecked ? (
-                  <StaffSignIn expectedRole="admin" onSignedIn={handleSignedIn} />
-                ) : (
-                  <div className="py-24 flex flex-col items-center justify-center text-slate-500 gap-3">
-                    <div className="w-8 h-8 rounded-full border-4 border-brand-600 border-t-transparent animate-spin" />
-                    <span className="text-xs font-semibold">Checking administrator session…</span>
-                  </div>
-                )
-              ) : (
-                <AdminDashboard
-                  tickets={tickets}
-                  csrfToken={staffSession.csrfToken}
-                  onSelectTicket={(t) => {
-                    setSelectedTicket(t);
-                    setIsDetailModalOpen(true);
-                  }}
-                  onReassignTicket={handleReassignTicket}
-                  onRefresh={fetchTickets}
-                />
-              ))}
-          </>
-        )}
-      </main>
+          {currentRole === 'student' && (
+            <div className="fixed inset-x-0 bottom-0 z-30 border-t border-line bg-surface/95 p-3 backdrop-blur sm:hidden">
+              <Button
+                fullWidth
+                size="lg"
+                onClick={() => setIsReportModalOpen(true)}
+                aria-label="Report an issue"
+              >
+                <PlusCircle className="h-5 w-5" aria-hidden="true" />
+                Report an issue
+              </Button>
+            </div>
+          )}
+        </>
+      )}
 
-      {/* Footer */}
-      <footer className="border-t border-line bg-surface py-6 text-slate-500 text-xs mt-12">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-col sm:flex-row items-center justify-between gap-3">
+      <footer className="mt-8 border-t border-line bg-surface py-8">
+        <div className="mx-auto flex max-w-[1100px] flex-col items-center justify-between gap-3 px-4 text-sm text-slate-500 sm:flex-row sm:px-6">
           <div className="flex items-center gap-2">
-            <Building2 className="w-4 h-4 text-brand-600" />
-            <span className="font-bold text-slate-900">CampusCare</span>
-            <span className="hidden sm:inline">— Smart campus maintenance &amp; issue-resolution platform</span>
+            <ShieldCheck className="h-4 w-4 text-brand-600" aria-hidden="true" />
+            <span className="font-semibold text-slate-700">CampusCare</span>
+            <span className="hidden sm:inline">· Campus maintenance service</span>
           </div>
-          <div className="flex flex-wrap items-center justify-center gap-x-4 gap-y-1 text-slate-400 font-medium">
-            <span>Report it • Route it • Resolve it • Verify it</span>
-            <span aria-hidden="true">•</span>
-            <span>Gemini 3.8 Flash Verification Engine</span>
-            <span aria-hidden="true">•</span>
-            <span>MIT License</span>
-          </div>
+          <p>Photos are only used to resolve your issue.</p>
         </div>
       </footer>
 
-      {/* Modals */}
       <StudentReportModal
         isOpen={isReportModalOpen}
         onClose={() => setIsReportModalOpen(false)}
         onTicketCreated={(newTicket) => {
           setTickets((prev) => [newTicket, ...prev]);
-          setSelectedTicket(newTicket);
-          setIsDetailModalOpen(true);
+          setIsReportModalOpen(false);
+          openTicket(newTicket);
+          toast(
+            `Got it! Ticket ${newTicket.id} sent to ${newTicket.department}. ${estimateFixTime(newTicket)}.`,
+            'success'
+          );
         }}
       />
 
@@ -356,6 +444,7 @@ export function App() {
           setTickets((prev) => prev.map((t) => (t.id === updated.id ? updated : t)));
           setSelectedTicket(updated);
           setIsDetailModalOpen(true);
+          toast(`${updated.id} repair submitted for verification.`, 'success');
         }}
       />
 
@@ -368,6 +457,11 @@ export function App() {
         onUpdated={(updated) => {
           setTickets((prev) => prev.map((t) => (t.id === updated.id ? updated : t)));
           setSelectedTicket(updated);
+          setIsResolutionModalOpen(false);
+          toast(
+            updated.status === 'resolved' ? `Thanks for confirming ${updated.id}.` : `${updated.id} reopened.`,
+            updated.status === 'resolved' ? 'success' : 'info'
+          );
         }}
       />
 
@@ -378,5 +472,13 @@ export function App() {
         onRefreshData={fetchTickets}
       />
     </div>
+  );
+}
+
+export function App() {
+  return (
+    <ToastProvider>
+      <AppShell />
+    </ToastProvider>
   );
 }

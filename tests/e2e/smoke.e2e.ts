@@ -1,29 +1,17 @@
 import { test, expect, Page } from '@playwright/test';
 
 /**
- * Smoke coverage for the CampusCare shell and the three portals.
+ * Smoke coverage for the CampusCare shell and the student entry point.
  * Kept resilient: asserts roles/visibility, not exact copy.
  */
 
-type PortalRole = 'student' | 'technician' | 'admin';
-
-const PORTAL_NAMES: Record<PortalRole, { desktop: RegExp; mobile: string }> = {
-  student: { desktop: /student portal/i, mobile: 'Student' },
-  technician: { desktop: /maintenance portal/i, mobile: 'Maintenance' },
-  admin: { desktop: /admin \/ warden/i, mobile: 'Admin / Warden' },
-};
-
-async function openPortal(page: Page, role: PortalRole) {
-  const desktopNav = page.locator('nav[aria-label="Portal navigation"]');
-  if (await desktopNav.isVisible()) {
-    await desktopNav.getByRole('button', { name: PORTAL_NAMES[role].desktop }).click();
-  } else {
-    await page.getByRole('button', { name: /open navigation menu/i }).click();
-    await page
-      .locator('#mobile-menu')
-      .getByRole('button', { name: PORTAL_NAMES[role].mobile, exact: true })
-      .click();
+async function visibleCount(page: Page, name: RegExp): Promise<number> {
+  const loc = page.getByRole('button', { name });
+  let visible = 0;
+  for (let i = 0; i < (await loc.count()); i++) {
+    if (await loc.nth(i).isVisible()) visible++;
   }
+  return visible;
 }
 
 test('shell renders the brand and a level-1 heading', async ({ page }) => {
@@ -32,25 +20,35 @@ test('shell renders the brand and a level-1 heading', async ({ page }) => {
   await expect(page.getByRole('heading', { level: 1 })).toBeVisible();
 });
 
-test('tagline is shown on wide viewports', async ({ page, isMobile }) => {
-  test.skip(isMobile, 'tagline is intentionally hidden on narrow screens');
-  await page.goto('/');
-  await expect(page.getByText(/Report it\. Route it\. Resolve it\. Verify it\./)).toBeVisible();
-});
-
-test('every portal is reachable from the shell', async ({ page }) => {
+test('the student view shows exactly one report action per viewport', async ({ page }) => {
   await page.goto('/');
   await expect(page.getByRole('heading', { level: 1 })).toBeVisible();
+  expect(await visibleCount(page, /report an issue/i)).toBe(1);
+});
 
-  for (const role of ['technician', 'admin', 'student'] as PortalRole[]) {
-    await openPortal(page, role);
-    await expect(page.getByRole('heading', { level: 1 })).toBeVisible();
-  }
+test('students do not see staff navigation', async ({ page }) => {
+  await page.goto('/');
+  await expect(page.getByRole('heading', { level: 1 })).toBeVisible();
+  await expect(page.getByRole('button', { name: /maintenance portal/i })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: /admin \/ warden/i })).toHaveCount(0);
+  // No demo student account and no notification bell on the public view.
+  await expect(page.getByRole('button', { name: /account menu/i })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: /notifications/i })).toHaveCount(0);
+  await expect(page.getByText('Aarav Patel')).toHaveCount(0);
+});
+
+test('staff sign-in is reachable from the header', async ({ page }) => {
+  await page.goto('/');
+  await page.getByRole('button', { name: /staff sign in/i }).click();
+  await expect(page.getByRole('heading', { name: /admin \/ warden sign-in/i })).toBeVisible();
+
+  await page.getByRole('button', { name: /back to student view/i }).click();
+  await expect(page.getByRole('heading', { level: 1 })).toBeVisible();
 });
 
 test('report dialog opens and closes without losing the page', async ({ page }) => {
   await page.goto('/');
-  await page.locator('header').getByRole('button', { name: /report/i }).first().click();
+  await page.getByRole('button', { name: /report an issue/i }).filter({ visible: true }).first().click();
 
   const dialog = page.getByRole('dialog').first();
   await expect(dialog).toBeVisible();

@@ -60,6 +60,9 @@ app.use(cors());
 app.use(express.json({ limit: '15mb' }));
 app.use(express.urlencoded({ extended: true, limit: '15mb' }));
 
+// Liveness probe for hosting platforms.
+app.get('/api/health', (_req: Request, res: Response) => res.json({ status: 'ok' }));
+
 // =================== REQUEST VALIDATION ===================
 const DepartmentSchema = z.enum(['Plumbing', 'Electrical', 'Cleaning', 'Carpentry', 'HVAC', 'General']);
 const RoleSchema = z.enum(['student', 'technician', 'admin']);
@@ -170,6 +173,11 @@ const challengeStore = new ChallengeStore();
 // hardcoded and no client-supplied role flag unlocks a privileged action.
 const COOKIE_NAME = 'cc_session';
 const IS_PRODUCTION = process.env.NODE_ENV === 'production';
+
+// Hosting platforms (Render, Fly, Railway…) terminate TLS at one proxy hop.
+// Trusting it keeps req.ip (rate limiting / security log) and secure-cookie
+// detection correct behind that proxy.
+if (IS_PRODUCTION) app.set('trust proxy', 1);
 
 const users = new UserStore();
 const sessions = new SessionStore();
@@ -1391,7 +1399,19 @@ async function startServer() {
     });
     app.use(vite.middlewares);
   } else {
-    app.use(express.static(path.join(__dirname, 'dist')));
+    app.use(
+      express.static(path.join(__dirname, 'dist'), {
+        setHeaders(res, filePath) {
+          // The service worker must always be revalidated so updates apply.
+          if (filePath.endsWith(`${path.sep}sw.js`) || filePath.endsWith('index.html')) {
+            res.setHeader('Cache-Control', 'no-cache');
+          } else if (filePath.includes(`${path.sep}assets${path.sep}`)) {
+            // Vite emits content-hashed filenames — safe to cache forever.
+            res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+          }
+        },
+      })
+    );
     app.get('*', (req, res) => {
       res.sendFile(path.join(__dirname, 'dist', 'index.html'));
     });

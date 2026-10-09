@@ -1,15 +1,9 @@
 import React, { useEffect, useState } from 'react';
-import {
-  X,
-  Camera,
-  Sparkles,
-  AlertCircle,
-  Loader2,
-  RefreshCw,
-  ShieldAlert,
-} from 'lucide-react';
+import { X, Camera, AlertCircle, Loader2, RefreshCw, ShieldAlert, CheckCircle2 } from 'lucide-react';
 import { Ticket, UserRole } from '../types';
-import { PriorityBadge, TicketIdChip } from './ui/Badges';
+import { Card } from './ui/Card';
+import { Button } from './ui/Button';
+import { TicketIdChip } from './ui/Badges';
 
 interface RepairCompletionModalProps {
   isOpen: boolean;
@@ -176,227 +170,250 @@ export const RepairCompletionModal: React.FC<RepairCompletionModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-900/60 backdrop-blur-xs overflow-y-auto">
+    <div className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-slate-900/60 p-3 backdrop-blur-xs sm:p-4">
       <div
         role="dialog"
         aria-modal="true"
         aria-labelledby="repair-modal-title"
         aria-describedby="repair-modal-desc"
-        className="relative w-full max-w-2xl my-2 sm:my-8 max-h-[calc(100dvh-1.5rem)] overflow-y-auto overscroll-contain bg-surface rounded-card border border-line shadow-card"
+        className="relative my-2 max-h-[calc(100dvh-1.5rem)] w-full max-w-2xl overflow-y-auto overscroll-contain sm:my-8"
       >
-        {/* Header */}
-        <div className="p-5 sm:p-6 border-b border-line flex items-start justify-between gap-4">
-          <div className="min-w-0">
-            <span className="inline-block text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-warning-100 text-warning-800 border border-warning-200">
-              Step 4: Repair &amp; Verification Evidence
-            </span>
-            <h2 id="repair-modal-title" className="text-lg font-bold text-slate-900 mt-2">
-              Complete Work Order &amp; Verify
-            </h2>
-            <p id="repair-modal-desc" className="mt-1 text-xs text-slate-500 leading-relaxed">
-              Submit repair notes and photographic evidence. AI will compare before and after photos.
-            </p>
-          </div>
-          <button
-            type="button"
-            onClick={onClose}
-            aria-label="Close repair form"
-            className="p-1.5 rounded-control text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors shrink-0"
-          >
-            <X className="w-5 h-5" aria-hidden="true" />
-          </button>
-        </div>
-
-        <div className="p-5 sm:p-6 space-y-4">
-          {/* Before Photo & Problem Reference */}
-          <div className="p-3 bg-surface-muted rounded-card border border-line flex items-start gap-3">
-            <img
-              src={ticket.beforePhotoUrl}
-              alt={`Before repair evidence for ${ticket.id}`}
-              className="w-16 h-16 rounded-control object-cover border border-line shrink-0"
-            />
-            <div className="text-xs space-y-1 min-w-0">
-              <div className="flex flex-wrap items-center gap-2">
-                <TicketIdChip id={ticket.id} />
-                <PriorityBadge priority={ticket.aiAssessment.priority} />
-              </div>
-              <p className="font-semibold text-slate-800 line-clamp-2">{ticket.aiAssessment.title}</p>
-              <p className="text-slate-500 line-clamp-2">{ticket.description}</p>
+        <Card className="overflow-hidden">
+          {/* Header */}
+          <div className="flex items-start justify-between gap-4 border-b border-line p-5 sm:p-6">
+            <div className="min-w-0">
+              <span className="inline-block rounded-full border border-brand-200 bg-brand-50 px-2 py-0.5 text-xs font-semibold text-brand-700">
+                Final step
+              </span>
+              <h2 id="repair-modal-title" className="mt-2 text-lg font-bold text-slate-900">
+                Complete work order
+              </h2>
+              <p id="repair-modal-desc" className="mt-1 text-sm leading-relaxed text-slate-500">
+                Add your repair notes and an after-photo so the student can confirm the fix.
+              </p>
             </div>
+            <button
+              type="button"
+              onClick={onClose}
+              aria-label="Close repair form"
+              className="shrink-0 rounded-control p-1.5 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-700"
+            >
+              <X className="h-5 w-5" aria-hidden="true" />
+            </button>
           </div>
 
-          {/* Server-issued challenge */}
-          {role === 'technician' || role === 'admin' ? (
-            <div className="p-4 bg-brand-50 border border-brand-200 rounded-card">
-              <div className="flex items-start gap-3">
-                <ShieldAlert className="w-5 h-5 text-brand-600 shrink-0 mt-0.5" aria-hidden="true" />
-                <div className="flex-1">
-                  <h3 className="text-xs font-bold text-brand-900 uppercase tracking-wide">
-                    Repair challenge code
-                  </h3>
-                  {challenge ? (
-                    <>
-                      <p
-                        className="mt-1 text-3xl font-black tracking-[0.3em] text-brand-800 font-mono"
-                        aria-live="polite"
-                      >
-                        {challenge.code}
-                      </p>
-                      <p className="mt-1 text-[11px] text-brand-900 leading-relaxed">
-                        Write this code clearly on paper or card and place it beside the repaired item.
-                        It must be visible in the after-photo. The code is single-use and expires{' '}
-                        {new Date(challenge.expiresAt).toLocaleTimeString()}.
-                      </p>
-                    </>
-                  ) : challengeError ? (
-                    <p className="mt-1 text-[11px] text-warning-800" role="status">
-                      {challengeError}. You can still submit, but it will be routed for human review.
-                    </p>
-                  ) : (
-                    <p className="mt-1 text-[11px] text-brand-700 flex items-center gap-1.5" role="status">
-                      <Loader2 className="w-3.5 h-3.5 animate-spin" aria-hidden="true" /> Issuing challenge…
-                    </p>
-                  )}
+          <div className="space-y-5 p-5 sm:p-6">
+            {/* Step 1 — review the issue */}
+            <section className="space-y-2">
+              <h3 className="text-sm font-semibold text-slate-800">1. Review the issue</h3>
+              <Card className="flex items-start gap-3 bg-surface-muted p-3">
+                <div className="shrink-0">
+                  <img
+                    src={ticket.beforePhotoUrl}
+                    alt={`Before repair evidence for ${ticket.id}`}
+                    className="h-16 w-16 rounded-control border border-line object-cover"
+                  />
+                  <span className="mt-1 block text-center text-xs font-semibold text-slate-500">
+                    Before
+                  </span>
                 </div>
-              </div>
-            </div>
-          ) : null}
+                <div className="min-w-0 space-y-1 text-sm">
+                  <TicketIdChip id={ticket.id} />
+                  <p className="font-semibold text-slate-800 line-clamp-2">
+                    {ticket.aiAssessment.title}
+                  </p>
+                  <p className="text-slate-500 line-clamp-2">{ticket.description}</p>
+                </div>
+              </Card>
+            </section>
 
-          <form onSubmit={handleSubmit} className="space-y-4">
-            {error && (
-              <div
-                role="alert"
-                className="p-3 bg-critical-50 border border-critical-200 text-critical-700 text-xs rounded-control flex items-start gap-2"
-              >
-                <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" aria-hidden="true" />
-                <span>{error}</span>
-              </div>
+            {/* Step 2 — repair challenge (staff only) */}
+            {(role === 'technician' || role === 'admin') && (
+              <section className="space-y-2">
+                <h3 className="text-sm font-semibold text-slate-800">2. Repair challenge</h3>
+                <Card className="border-brand-200 bg-brand-50 p-4">
+                  <div className="flex items-start gap-3">
+                    <ShieldAlert className="mt-0.5 h-5 w-5 shrink-0 text-brand-700" aria-hidden="true" />
+                    <div className="flex-1">
+                      {challenge ? (
+                        <>
+                          <p className="text-xs font-semibold text-brand-900">Your challenge code</p>
+                          <p
+                            className="mt-1 text-3xl font-bold tracking-[0.2em] text-brand-800"
+                            aria-live="polite"
+                          >
+                            {challenge.code}
+                          </p>
+                          <p className="mt-1 text-xs leading-relaxed text-brand-900">
+                            Write this code clearly on paper or card and place it beside the repaired
+                            item. It must be visible in the after-photo. The code is single-use and
+                            expires {new Date(challenge.expiresAt).toLocaleTimeString()}.
+                          </p>
+                        </>
+                      ) : challengeError ? (
+                        <p className="text-xs text-warning-700" role="status">
+                          {challengeError}. You can still submit, but it will be routed for human
+                          review.
+                        </p>
+                      ) : (
+                        <p className="flex items-center gap-1.5 text-xs text-brand-700" role="status">
+                          <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" /> Issuing
+                          challenge…
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                </Card>
+              </section>
             )}
 
-            <div>
-              <label htmlFor="repair-technician" className="block text-xs font-semibold text-slate-700 mb-1">
-                Technician Name &amp; Crew
-              </label>
-              <input
-                id="repair-technician"
-                type="text"
-                required
-                value={technicianName}
-                onChange={(e) => setTechnicianName(e.target.value)}
-                className="w-full text-xs p-2.5 bg-surface-muted border border-line rounded-control text-slate-900 focus:bg-surface focus:outline-hidden focus:ring-2 focus:ring-brand-500 focus:border-brand-400"
-              />
-            </div>
+            {/* Step 3 — repair details and after-photo */}
+            <form onSubmit={handleSubmit} className="space-y-4">
+              <h3 className="text-sm font-semibold text-slate-800">3. Record the repair</h3>
 
-            <div>
-              <label htmlFor="repair-notes" className="block text-xs font-semibold text-slate-700 mb-1">
-                Work Completed &amp; Diagnostics Notes <span className="text-critical-500">*</span>
-              </label>
-              <textarea
-                id="repair-notes"
-                required
-                rows={3}
-                value={workNotes}
-                onChange={(e) => setWorkNotes(e.target.value)}
-                placeholder="Describe what components were replaced, testing performed, and safety precautions..."
-                className="w-full text-xs p-3 bg-surface-muted border border-line rounded-control text-slate-900 focus:bg-surface focus:outline-hidden focus:ring-2 focus:ring-brand-500 focus:border-brand-400"
-              />
-            </div>
-
-            {/* In-app capture with an upload fallback */}
-            <div className="p-3 bg-surface-muted border border-line rounded-card space-y-2">
-              <div className="flex items-center justify-between gap-2">
-                <span className="text-xs font-semibold text-slate-700">After-Repair Photo</span>
-                <span className="text-[10px] text-brand-600 font-medium">
-                  {capturedDataUrl ? 'Captured in-app' : 'Camera or upload'}
-                </span>
-              </div>
-
-              {capturedDataUrl ? (
-                <div className="flex items-center gap-3">
-                  <img
-                    src={capturedDataUrl}
-                    alt="After repair preview"
-                    className="w-16 h-16 rounded-control object-cover border border-line"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setCapturedDataUrl(null)}
-                    className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-slate-700 bg-surface border border-line hover:bg-slate-50 rounded-control transition-colors"
-                  >
-                    <RefreshCw className="w-3.5 h-3.5" aria-hidden="true" /> Retake / remove
-                  </button>
+              {error && (
+                <div
+                  role="alert"
+                  className="flex items-start gap-2 rounded-control border border-critical-200 bg-critical-50 p-3 text-sm text-critical-700"
+                >
+                  <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
+                  <span>{error}</span>
                 </div>
-              ) : (
-                <label className="flex items-center justify-center gap-2 p-3 border-2 border-dashed border-line rounded-control text-xs font-semibold text-slate-600 hover:bg-surface cursor-pointer transition-colors">
-                  {captureBusy ? (
-                    <Loader2 className="w-4 h-4 animate-spin" aria-hidden="true" />
-                  ) : (
-                    <Camera className="w-4 h-4" aria-hidden="true" />
-                  )}
-                  <span>{captureBusy ? 'Processing photo…' : 'Capture with camera or upload an image'}</span>
-                  <input
-                    type="file"
-                    accept="image/*"
-                    capture="environment"
-                    className="sr-only"
-                    onChange={handleCapture}
-                  />
-                </label>
               )}
 
-              <div className="flex gap-2 items-center">
-                <label htmlFor="repair-after-url" className="text-[10px] text-slate-500 shrink-0">
-                  or image URL
+              <div>
+                <label
+                  htmlFor="repair-technician"
+                  className="mb-1.5 block text-sm font-semibold text-slate-700"
+                >
+                  Technician name &amp; crew
                 </label>
                 <input
-                  id="repair-after-url"
-                  type="url"
-                  disabled={Boolean(capturedDataUrl)}
-                  value={afterPhotoUrl}
-                  onChange={(e) => setAfterPhotoUrl(e.target.value)}
-                  placeholder="https://..."
-                  className="flex-1 min-w-0 text-xs p-2.5 bg-surface border border-line rounded-control text-slate-900 focus:outline-hidden focus:ring-2 focus:ring-brand-500 focus:border-brand-400 disabled:opacity-50"
+                  id="repair-technician"
+                  type="text"
+                  required
+                  value={technicianName}
+                  onChange={(e) => setTechnicianName(e.target.value)}
+                  className="w-full rounded-control border border-line bg-surface-muted p-2.5 text-sm text-slate-900 focus:border-brand-400 focus:bg-surface focus:outline-hidden focus:ring-2 focus:ring-brand-500"
                 />
               </div>
-            </div>
 
-            <div className="p-3 bg-accent-50 border border-accent-200 rounded-card text-xs text-accent-700 flex items-start gap-2">
-              <Sparkles className="w-4 h-4 text-accent-500 shrink-0 mt-0.5" aria-hidden="true" />
-              <div className="text-[11px] leading-relaxed">
-                <span className="font-bold">Next AI Step:</span> Upon submission, CampusCare AI analyzes
-                both before &amp; after photos to detect visible changes, check the challenge code, and
-                report evidence quality and any remaining concerns before notifying the student.
+              <div>
+                <label
+                  htmlFor="repair-notes"
+                  className="mb-1.5 block text-sm font-semibold text-slate-700"
+                >
+                  Work completed <span className="text-critical-500">*</span>
+                </label>
+                <textarea
+                  id="repair-notes"
+                  required
+                  rows={3}
+                  value={workNotes}
+                  onChange={(e) => setWorkNotes(e.target.value)}
+                  placeholder="Describe what you replaced, what you tested, and any safety precautions…"
+                  className="w-full rounded-control border border-line bg-surface-muted p-3 text-sm text-slate-900 focus:border-brand-400 focus:bg-surface focus:outline-hidden focus:ring-2 focus:ring-brand-500"
+                />
               </div>
-            </div>
 
-            <p className="sr-only" role="status" aria-live="polite">
-              {isSubmitting ? 'Submitting repair for verification…' : ''}
-            </p>
+              {/* After-photo upload */}
+              <div className="space-y-2 rounded-card border border-line bg-surface-muted p-3">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-sm font-semibold text-slate-700">After-repair photo</span>
+                  <span className="text-xs font-medium text-slate-500">
+                    {capturedDataUrl ? 'Captured in-app' : 'Camera or upload'}
+                  </span>
+                </div>
 
-            <div className="pt-2 border-t border-line flex items-center justify-end gap-2">
-              <button
-                type="button"
-                onClick={onClose}
-                className="px-4 py-2 text-xs font-semibold text-slate-700 bg-surface border border-line hover:bg-slate-50 rounded-control transition-colors"
-              >
-                Cancel
-              </button>
-              <button
-                type="submit"
-                disabled={isSubmitting || !workNotes.trim()}
-                aria-busy={isSubmitting}
-                className="inline-flex items-center gap-1.5 px-5 py-2.5 rounded-control bg-brand-600 hover:bg-brand-700 text-white text-xs font-bold transition-colors disabled:opacity-50"
-              >
-                {isSubmitting ? (
-                  <Loader2 className="w-3.5 h-3.5 animate-spin" aria-hidden="true" />
+                {capturedDataUrl ? (
+                  <div className="flex items-center gap-3">
+                    <div>
+                      <img
+                        src={capturedDataUrl}
+                        alt="After repair preview"
+                        className="h-16 w-16 rounded-control border border-line object-cover"
+                      />
+                      <span className="mt-1 block text-center text-xs font-semibold text-slate-500">
+                        After
+                      </span>
+                    </div>
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      size="sm"
+                      onClick={() => setCapturedDataUrl(null)}
+                    >
+                      <RefreshCw className="h-3.5 w-3.5" aria-hidden="true" /> Retake / remove
+                    </Button>
+                  </div>
                 ) : (
-                  <Sparkles className="w-3.5 h-3.5" aria-hidden="true" />
+                  <label className="flex cursor-pointer items-center justify-center gap-2 rounded-control border-2 border-dashed border-line p-3 text-sm font-semibold text-slate-600 transition-colors hover:bg-surface">
+                    {captureBusy ? (
+                      <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+                    ) : (
+                      <Camera className="h-4 w-4" aria-hidden="true" />
+                    )}
+                    <span>
+                      {captureBusy ? 'Processing photo…' : 'Capture with camera or upload an image'}
+                    </span>
+                    <input
+                      type="file"
+                      accept="image/*"
+                      capture="environment"
+                      className="sr-only"
+                      onChange={handleCapture}
+                    />
+                  </label>
                 )}
-                <span>{isSubmitting ? 'Submitting…' : 'Submit & Run AI Verification'}</span>
-              </button>
-            </div>
-          </form>
-        </div>
+
+                <div className="flex items-center gap-2">
+                  <label htmlFor="repair-after-url" className="shrink-0 text-xs text-slate-500">
+                    or image URL
+                  </label>
+                  <input
+                    id="repair-after-url"
+                    type="url"
+                    disabled={Boolean(capturedDataUrl)}
+                    value={afterPhotoUrl}
+                    onChange={(e) => setAfterPhotoUrl(e.target.value)}
+                    placeholder="https://…"
+                    className="min-w-0 flex-1 rounded-control border border-line bg-surface p-2.5 text-sm text-slate-900 focus:outline-hidden focus:ring-2 focus:ring-brand-500 disabled:opacity-50"
+                  />
+                </div>
+
+                <p className="text-xs text-slate-500">Photos are only used to resolve this issue.</p>
+              </div>
+
+              <div className="flex items-start gap-2 rounded-card border border-info-200 bg-info-50 p-3 text-xs text-info-700">
+                <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
+                <p className="leading-relaxed">
+                  When you submit, the after-photo is reviewed against the original report before the
+                  student is asked to confirm the fix.
+                </p>
+              </div>
+
+              <p className="sr-only" role="status" aria-live="polite">
+                {isSubmitting ? 'Submitting repair for review…' : ''}
+              </p>
+
+              <div className="flex items-center justify-end gap-2 border-t border-line pt-4">
+                <Button type="button" variant="secondary" size="md" onClick={onClose}>
+                  Cancel
+                </Button>
+                <Button
+                  type="submit"
+                  variant="primary"
+                  size="md"
+                  loading={isSubmitting}
+                  disabled={!workNotes.trim()}
+                  aria-busy={isSubmitting}
+                >
+                  {isSubmitting ? 'Submitting…' : 'Submit repair'}
+                </Button>
+              </div>
+            </form>
+          </div>
+        </Card>
       </div>
     </div>
   );

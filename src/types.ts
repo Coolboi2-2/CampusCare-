@@ -139,4 +139,14 @@ export interface Ticket {
   auditTrail: AuditEvent[];
 }
 
+/** In-app notification derived from ticket activity (no server field). */
+export interface AppNotification {
+  id: string;
+  title: string;
+  body: string;
+  ticketId?: string;
+  createdAt: string;
+  tone: 'info' | 'action' | 'success';
+}
+
 export type { IssueAnalysis, RepairAssessment, AssessmentMetadata };

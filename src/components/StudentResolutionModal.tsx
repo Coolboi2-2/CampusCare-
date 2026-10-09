@@ -1,7 +1,8 @@
-import React, { useState } from 'react';
-import { X, CheckCircle2, RotateCcw, Star, AlertCircle, Loader2 } from 'lucide-react';
+import React, { useEffect, useState } from 'react';
+import { X, CheckCircle2, RotateCcw, Star, AlertCircle } from 'lucide-react';
 import { Ticket, UserRole } from '../types';
-import { ModeBadge } from './ui/Badges';
+import { Button } from './ui/Button';
+import { TicketIdChip } from './ui/Badges';
 
 interface StudentResolutionModalProps {
   isOpen: boolean;
@@ -24,12 +25,16 @@ export const StudentResolutionModal: React.FC<StudentResolutionModalProps> = ({
   onUpdated,
 }) => {
   const [rating, setRating] = useState(5);
-  const [comment, setComment] = useState('Pipe joint is completely dry and leak is resolved. Thank you!');
-  const [reopenReason, setReopenReason] = useState(
-    'The water continues to drip slightly when the cold water tap is opened at high pressure.'
-  );
+  const [comment, setComment] = useState('');
+  const [reopenReason, setReopenReason] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [activeMode, setActiveMode] = useState<'confirm' | 'reopen'>(mode);
+
+  // Follow the mode the caller opened with, while letting the student switch locally.
+  useEffect(() => {
+    if (isOpen) setActiveMode(mode);
+  }, [isOpen, mode]);
 
   if (!isOpen || !ticket) return null;
 
@@ -39,9 +44,12 @@ export const StudentResolutionModal: React.FC<StudentResolutionModalProps> = ({
     setError(null);
 
     try {
-      const endpoint = mode === 'confirm' ? `/api/tickets/${ticket.id}/resolve` : `/api/tickets/${ticket.id}/reopen`;
+      const endpoint =
+        activeMode === 'confirm'
+          ? `/api/tickets/${ticket.id}/resolve`
+          : `/api/tickets/${ticket.id}/reopen`;
       const payload =
-        mode === 'confirm'
+        activeMode === 'confirm'
           ? { confirmedBy: ticket.reporterName, rating, comment, role }
           : { reason: reopenReason, reopenedBy: ticket.reporterName, role };
 
@@ -66,81 +74,117 @@ export const StudentResolutionModal: React.FC<StudentResolutionModalProps> = ({
     }
   };
 
-  const isConfirm = mode === 'confirm';
+  const isConfirm = activeMode === 'confirm';
 
   return (
-    <div className="fixed inset-0 z-50 flex items-start sm:items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs overflow-y-auto">
+    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-slate-900/60 p-4 backdrop-blur-xs sm:items-center">
       <div
         role="dialog"
         aria-modal="true"
+        aria-label="Resolve issue"
         aria-labelledby="resolution-modal-title"
-        className="bg-surface rounded-card border border-line shadow-card max-w-lg w-full my-8 max-h-[calc(100vh-4rem)] overflow-y-auto"
+        className="my-8 max-h-[calc(100vh-4rem)] w-full max-w-lg overflow-y-auto rounded-card border border-line bg-surface shadow-card"
       >
-        <div className="flex items-center justify-between gap-3 p-5 border-b border-line">
-          <div className="flex items-center gap-2.5 min-w-0">
+        <div className="flex items-center justify-between gap-3 border-b border-line p-5">
+          <div className="flex min-w-0 items-center gap-2.5">
             <div
-              className={`w-9 h-9 rounded-control flex items-center justify-center shrink-0 ${
+              className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-control ${
                 isConfirm ? 'bg-success-50 text-success-600' : 'bg-critical-50 text-critical-600'
               }`}
             >
-              {isConfirm ? <CheckCircle2 className="w-5 h-5" /> : <RotateCcw className="w-5 h-5" />}
+              {isConfirm ? <CheckCircle2 className="h-5 w-5" /> : <RotateCcw className="h-5 w-5" />}
             </div>
             <div className="min-w-0">
               <h2 id="resolution-modal-title" className="text-base font-bold text-slate-900">
-                {isConfirm ? 'Confirm Issue Resolution' : 'Reopen Maintenance Ticket'}
+                {isConfirm ? "Confirm it's fixed" : "Tell us it's not fixed yet"}
               </h2>
-              <span className="text-[11px] font-mono text-slate-500">{ticket.id}</span>
+              <TicketIdChip id={ticket.id} />
             </div>
           </div>
 
-          <button
+          <Button
             type="button"
+            variant="ghost"
+            size="sm"
             onClick={onClose}
             aria-label="Close dialog"
-            className="p-1.5 rounded-control text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors shrink-0"
+            className="shrink-0"
           >
-            <X className="w-5 h-5" />
-          </button>
+            <X className="h-5 w-5" aria-hidden="true" />
+          </Button>
         </div>
 
         <div className="p-5">
-          {/* Repair Evidence Preview */}
-          {ticket.afterPhotoUrl && (
-            <div className="mb-4 p-3 bg-surface-muted rounded-card border border-line flex items-center gap-3">
+          {/* Before / after evidence */}
+          <div className="grid grid-cols-2 gap-3">
+            <figure className="space-y-1.5">
               <img
-                src={ticket.afterPhotoUrl}
-                alt="Technician repair evidence"
+                src={ticket.beforePhotoUrl}
+                alt="Before the repair"
                 loading="lazy"
-                className="w-14 h-14 rounded-control object-cover border border-line shrink-0"
+                className="h-28 w-full rounded-control border border-line object-cover"
                 onError={(e) => {
                   if (e.currentTarget.src !== FALLBACK_PHOTO) e.currentTarget.src = FALLBACK_PHOTO;
                 }}
               />
-              <div className="text-xs space-y-0.5 min-w-0">
-                <span className="text-[10px] font-bold text-success-700 uppercase tracking-wider block">
-                  Technician Evidence
-                </span>
-                <p className="text-slate-800 font-medium line-clamp-1">{ticket.workNotes}</p>
-                {ticket.latestVerification && (
-                  <span className="flex flex-wrap items-center gap-1.5 text-[10px] text-accent-700 font-semibold">
-                    <span>
-                      Assessment: {ticket.latestVerification.assessment.visualOutcome}
-                      {' '}({ticket.latestVerification.assessment.evidenceQuality} evidence)
-                    </span>
-                    <ModeBadge provider={ticket.latestVerification.metadata.provider} />
-                  </span>
-                )}
-              </div>
-            </div>
+              <figcaption className="text-xs font-medium text-slate-500">Before</figcaption>
+            </figure>
+            <figure className="space-y-1.5">
+              {ticket.afterPhotoUrl ? (
+                <img
+                  src={ticket.afterPhotoUrl}
+                  alt="After the repair"
+                  loading="lazy"
+                  className="h-28 w-full rounded-control border border-line object-cover"
+                  onError={(e) => {
+                    if (e.currentTarget.src !== FALLBACK_PHOTO) e.currentTarget.src = FALLBACK_PHOTO;
+                  }}
+                />
+              ) : (
+                <div className="flex h-28 w-full items-center justify-center rounded-control border border-dashed border-line bg-surface-muted text-xs text-slate-500">
+                  No photo yet
+                </div>
+              )}
+              <figcaption className="text-xs font-medium text-slate-500">After</figcaption>
+            </figure>
+          </div>
+
+          {ticket.workNotes && (
+            <p className="mt-3 text-sm text-slate-600">
+              <span className="font-medium text-slate-700">What was done: </span>
+              {ticket.workNotes}
+            </p>
           )}
 
-          <form onSubmit={handleSubmit} className="space-y-4">
+          {/* Two choices */}
+          <div className="mt-5 grid grid-cols-1 gap-2 sm:grid-cols-2">
+            <Button
+              type="button"
+              variant={isConfirm ? 'primary' : 'secondary'}
+              onClick={() => setActiveMode('confirm')}
+              aria-pressed={isConfirm}
+            >
+              <CheckCircle2 className="h-4 w-4" aria-hidden="true" />
+              Yes, it's fixed
+            </Button>
+            <Button
+              type="button"
+              variant={!isConfirm ? 'danger' : 'secondary'}
+              onClick={() => setActiveMode('reopen')}
+              aria-pressed={!isConfirm}
+            >
+              <RotateCcw className="h-4 w-4" aria-hidden="true" />
+              Not fixed yet
+            </Button>
+          </div>
+
+          <form onSubmit={handleSubmit} className="mt-5 space-y-4">
             {error && (
               <div
                 role="alert"
-                className="p-3 bg-critical-50 border border-critical-200 text-critical-700 text-xs rounded-control flex items-center gap-2"
+                className="flex items-center gap-2 rounded-control border border-critical-200 bg-critical-50 p-3 text-sm text-critical-700"
               >
-                <AlertCircle className="w-4 h-4 shrink-0" />
+                <AlertCircle className="h-4 w-4 shrink-0" aria-hidden="true" />
                 <span>{error}</span>
               </div>
             )}
@@ -150,9 +194,9 @@ export const StudentResolutionModal: React.FC<StudentResolutionModalProps> = ({
                 <div>
                   <span
                     id="resolution-rating-label"
-                    className="block text-xs font-semibold text-slate-700 mb-1"
+                    className="mb-1 block text-sm font-semibold text-slate-700"
                   >
-                    Rate Repair Quality &amp; Promptness
+                    How was the repair?
                   </span>
                   <div
                     role="group"
@@ -166,19 +210,19 @@ export const StudentResolutionModal: React.FC<StudentResolutionModalProps> = ({
                         onClick={() => setRating(star)}
                         aria-label={`${star} out of 5 stars`}
                         aria-pressed={rating === star}
-                        className="p-1 rounded-control hover:scale-110 transition-transform"
+                        className="rounded-control p-1 transition-transform hover:scale-110"
                       >
                         <Star
-                          className={`w-6 h-6 ${
+                          className={`h-7 w-7 ${
                             star <= rating
-                              ? 'text-warning-400 fill-warning-400'
-                              : 'text-slate-200 fill-slate-100'
+                              ? 'fill-warning-400 text-warning-400'
+                              : 'fill-slate-100 text-slate-200'
                           }`}
                         />
                       </button>
                     ))}
-                    <span className="text-xs font-bold text-slate-600 ml-2" aria-hidden="true">
-                      {rating}/5 Stars
+                    <span className="ml-2 text-sm font-bold text-slate-600" aria-hidden="true">
+                      {rating}/5
                     </span>
                   </div>
                 </div>
@@ -186,17 +230,17 @@ export const StudentResolutionModal: React.FC<StudentResolutionModalProps> = ({
                 <div>
                   <label
                     htmlFor="resolution-comment"
-                    className="block text-xs font-semibold text-slate-700 mb-1"
+                    className="mb-1 block text-sm font-semibold text-slate-700"
                   >
-                    Resolution Comments
+                    Anything to add? (optional)
                   </label>
                   <textarea
                     id="resolution-comment"
                     rows={3}
                     value={comment}
                     onChange={(e) => setComment(e.target.value)}
-                    placeholder="Thank the maintenance crew or leave remarks..."
-                    className="w-full text-xs p-3 bg-surface-muted border border-line rounded-control text-slate-900 focus:bg-surface focus:outline-hidden focus:ring-2 focus:ring-brand-500 focus:border-brand-400"
+                    placeholder="Thank the maintenance crew or leave a note..."
+                    className="w-full rounded-control border border-line bg-surface-muted p-3 text-sm text-slate-900 focus:border-brand-400 focus:bg-surface focus:outline-hidden focus:ring-2 focus:ring-brand-500"
                   />
                 </div>
               </>
@@ -204,9 +248,9 @@ export const StudentResolutionModal: React.FC<StudentResolutionModalProps> = ({
               <div>
                 <label
                   htmlFor="resolution-reopen-reason"
-                  className="block text-xs font-semibold text-slate-700 mb-1"
+                  className="mb-1 block text-sm font-semibold text-slate-700"
                 >
-                  Reason for Reopening <span className="text-critical-500">*</span>
+                  What still needs fixing? <span className="text-critical-500">*</span>
                 </label>
                 <textarea
                   id="resolution-reopen-reason"
@@ -214,40 +258,27 @@ export const StudentResolutionModal: React.FC<StudentResolutionModalProps> = ({
                   rows={3}
                   value={reopenReason}
                   onChange={(e) => setReopenReason(e.target.value)}
-                  placeholder="Explain why the physical problem remains unresolved..."
-                  className="w-full text-xs p-3 bg-surface-muted border border-line rounded-control text-slate-900 focus:bg-surface focus:outline-hidden focus:ring-2 focus:ring-brand-500 focus:border-brand-400"
+                  placeholder="Tell us what's still wrong so the crew can take another look."
+                  className="w-full rounded-control border border-line bg-surface-muted p-3 text-sm text-slate-900 focus:border-brand-400 focus:bg-surface focus:outline-hidden focus:ring-2 focus:ring-brand-500"
                 />
-                <p className="text-[11px] text-slate-500 mt-1">
-                  The ticket will be returned to the {ticket.department} department queue with high
-                  priority.
+                <p className="mt-1 text-sm text-slate-500">
+                  This goes back to the {ticket.department} team with priority.
                 </p>
               </div>
             )}
 
-            <div className="pt-3 border-t border-line flex items-center justify-end gap-2">
-              <button
-                type="button"
-                onClick={onClose}
-                className="px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-control transition-colors"
-              >
+            <div className="flex items-center justify-end gap-2 border-t border-line pt-4">
+              <Button type="button" variant="ghost" onClick={onClose}>
                 Cancel
-              </button>
-              <button
-                type="submit"
-                disabled={isSubmitting}
-                className={`px-5 py-2.5 rounded-control text-white text-xs font-bold transition-colors flex items-center gap-1.5 disabled:opacity-50 ${
-                  isConfirm ? 'bg-success-600 hover:bg-success-700' : 'bg-critical-600 hover:bg-critical-700'
-                }`}
-              >
-                {isSubmitting ? (
-                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                ) : isConfirm ? (
-                  <CheckCircle2 className="w-3.5 h-3.5" />
+              </Button>
+              <Button type="submit" variant={isConfirm ? 'primary' : 'danger'} loading={isSubmitting}>
+                {isConfirm ? (
+                  <CheckCircle2 className="h-4 w-4" aria-hidden="true" />
                 ) : (
-                  <RotateCcw className="w-3.5 h-3.5" />
+                  <RotateCcw className="h-4 w-4" aria-hidden="true" />
                 )}
-                <span>{isConfirm ? 'Confirm & Close Ticket' : 'Reopen Ticket'}</span>
-              </button>
+                {isConfirm ? "Yes, it's fixed" : 'Not fixed yet'}
+              </Button>
             </div>
           </form>
         </div>

@@ -3,22 +3,24 @@ import {
   X,
   Sparkles,
   Camera,
-  MapPin,
   Send,
   AlertCircle,
   Loader2,
-  CheckCircle2,
-  Info,
   ShieldAlert,
+  Info,
 } from 'lucide-react';
 import { Ticket, LocationDetail } from '../types';
 import { IssueAnalysis, AssessmentMetadata } from '../lib/ai/schemas';
+import { ModeBadge, PriorityBadge } from './ui/Badges';
 
 interface StudentReportModalProps {
   isOpen: boolean;
   onClose: () => void;
   onTicketCreated: (newTicket: Ticket) => void;
 }
+
+const FALLBACK_PHOTO =
+  'https://images.unsplash.com/photo-1584622650111-993a426fbf0a?auto=format&fit=crop&w=200&q=80';
 
 const SAMPLE_PRESETS = [
   {
@@ -124,6 +126,16 @@ export const StudentReportModal: React.FC<StudentReportModalProps> = ({
     setPhotoUrl(preset.photo);
   };
 
+  const handlePhotoFile = (file?: File | null) => {
+    if (!file || !file.type.startsWith('image/')) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      if (typeof reader.result === 'string') setPhotoUrl(reader.result);
+    };
+    // shortcut: client-side data URL, fine for demo photos; move to upload storage for large real files
+    reader.readAsDataURL(file);
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!description.trim()) {
@@ -164,239 +176,361 @@ export const StudentReportModal: React.FC<StudentReportModalProps> = ({
 
   const aiAssessment = analysisResult?.analysis;
   const aiMeta = analysisResult?.metadata;
+  const descriptionMissing = !!error && !description.trim();
+
+  const inputClass =
+    'w-full text-xs p-2.5 bg-surface-muted border border-line rounded-control text-slate-900 focus:bg-surface focus:outline-hidden focus:ring-2 focus:ring-brand-500 focus:border-brand-400';
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs overflow-y-auto">
-      <div className="bg-white rounded-3xl max-w-2xl w-full p-6 shadow-2xl border border-slate-200 relative my-8">
+    <div className="fixed inset-0 z-50 flex items-start sm:items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs overflow-y-auto">
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="report-modal-title"
+        className="bg-surface rounded-card border border-line shadow-card max-w-2xl w-full my-8 max-h-[calc(100vh-4rem)] overflow-y-auto"
+      >
         {/* Header */}
-        <div className="flex items-center justify-between pb-4 border-b border-slate-100">
+        <div className="flex items-start justify-between gap-3 p-5 pb-4 border-b border-line">
           <div>
-            <div className="flex items-center gap-2">
-              <span className="text-xs font-bold uppercase tracking-wider px-2.5 py-0.5 rounded-full bg-blue-100 text-blue-700">
-                Phase A: Structured Issue Intake
-              </span>
-            </div>
-            <h2 className="text-lg font-bold text-slate-900 mt-1">Report Campus Maintenance Incident</h2>
-            <p className="text-xs text-slate-500">
+            <span className="inline-flex items-center text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-brand-50 text-brand-700 border border-brand-200">
+              Structured Issue Intake
+            </span>
+            <h2 id="report-modal-title" className="text-lg font-bold text-slate-900 mt-1.5">
+              Report Campus Maintenance Incident
+            </h2>
+            <p className="text-xs text-slate-500 mt-0.5">
               Validated application logic inspects defects, detects safety risks, and routes tickets.
             </p>
           </div>
           <button
+            type="button"
             onClick={onClose}
-            className="p-1.5 rounded-xl text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors"
+            aria-label="Close report form"
+            className="p-1.5 rounded-control text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors shrink-0"
           >
             <X className="w-5 h-5" />
           </button>
         </div>
 
-        {/* Quick Demo Presets */}
-        <div className="mt-4 p-3 bg-slate-50 border border-slate-200 rounded-2xl">
-          <span className="text-[11px] font-bold text-slate-600 block mb-2">
-            ⚡ Quick Test Presets (1-Click Fill):
-          </span>
-          <div className="flex flex-wrap gap-2">
-            {SAMPLE_PRESETS.map((p, idx) => (
-              <button
-                key={idx}
-                type="button"
-                onClick={() => handleSelectPreset(p)}
-                className="text-xs py-1.5 px-2.5 rounded-xl bg-white hover:bg-blue-50 hover:text-blue-700 border border-slate-200 font-semibold text-slate-700 transition-colors shadow-2xs"
+        <div className="p-5">
+          {/* Quick Demo Presets */}
+          <div className="mb-4 p-3 bg-surface-muted border border-line rounded-card">
+            <span className="text-[11px] font-bold text-slate-600 block mb-2">
+              Quick test presets (1-click fill)
+            </span>
+            <div className="flex flex-wrap gap-2">
+              {SAMPLE_PRESETS.map((p, idx) => (
+                <button
+                  key={idx}
+                  type="button"
+                  onClick={() => handleSelectPreset(p)}
+                  className="text-xs py-1.5 px-2.5 rounded-control bg-surface hover:bg-brand-50 hover:text-brand-700 border border-line font-semibold text-slate-700 transition-colors"
+                >
+                  {p.name}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Report Form */}
+          <form onSubmit={handleSubmit} className="space-y-5">
+            {error && (
+              <div
+                role="alert"
+                className="p-3 bg-rose-50 border border-rose-200 text-rose-700 text-xs rounded-control flex items-center gap-2"
               >
-                {p.name}
-              </button>
-            ))}
-          </div>
-        </div>
+                <AlertCircle className="w-4 h-4 shrink-0" />
+                <span>{error}</span>
+              </div>
+            )}
 
-        {/* Report Form */}
-        <form onSubmit={handleSubmit} className="mt-4 space-y-4">
-          {error && (
-            <div className="p-3 bg-rose-50 border border-rose-200 text-rose-700 text-xs rounded-xl flex items-center gap-2">
-              <AlertCircle className="w-4 h-4 shrink-0" />
-              <span>{error}</span>
-            </div>
-          )}
-
-          <div>
-            <label className="block text-xs font-semibold text-slate-700 mb-1">
-              Natural Language Description <span className="text-rose-500">*</span>
-            </label>
-            <textarea
-              required
-              rows={3}
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              placeholder="e.g. Water is leaking under the sink washbasin whenever the tap runs..."
-              className="w-full text-xs p-3 bg-slate-50 border border-slate-200 rounded-xl text-slate-900 focus:bg-white focus:outline-hidden focus:ring-2 focus:ring-blue-500"
-            />
-          </div>
-
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
-            <div>
-              <label className="block text-[11px] font-medium text-slate-600 mb-1">Campus Zone</label>
-              <select
-                value={zone}
-                onChange={(e) => setZone(e.target.value)}
-                className="w-full text-xs p-2 bg-slate-50 border border-slate-200 rounded-lg text-slate-900 focus:bg-white"
+            {/* Step 1 — Describe the issue */}
+            <section aria-labelledby="report-section-details">
+              <h3
+                id="report-section-details"
+                className="flex items-center gap-2 text-xs font-bold text-slate-900 mb-2"
               >
-                <option value="Hostel Village">Hostel Village</option>
-                <option value="Academic Complex">Academic Complex</option>
-                <option value="Central Library">Central Library</option>
-                <option value="Sports & Rec">Sports & Rec</option>
-              </select>
-            </div>
-            <div>
-              <label className="block text-[11px] font-medium text-slate-600 mb-1">Building</label>
-              <input
-                type="text"
-                value={building}
-                onChange={(e) => setBuilding(e.target.value)}
-                className="w-full text-xs p-2 bg-slate-50 border border-slate-200 rounded-lg text-slate-900 focus:bg-white"
-              />
-            </div>
-            <div>
-              <label className="block text-[11px] font-medium text-slate-600 mb-1">Floor</label>
-              <input
-                type="text"
-                value={floor}
-                onChange={(e) => setFloor(e.target.value)}
-                className="w-full text-xs p-2 bg-slate-50 border border-slate-200 rounded-lg text-slate-900 focus:bg-white"
-              />
-            </div>
-            <div>
-              <label className="block text-[11px] font-medium text-slate-600 mb-1">Room</label>
-              <input
-                type="text"
-                value={room}
-                onChange={(e) => setRoom(e.target.value)}
-                className="w-full text-xs p-2 bg-slate-50 border border-slate-200 rounded-lg text-slate-900 focus:bg-white"
-              />
-            </div>
-          </div>
+                <span className="w-5 h-5 rounded-full bg-brand-600 text-white text-[10px] font-bold flex items-center justify-center">
+                  1
+                </span>
+                Describe the issue
+              </h3>
 
-          <div>
-            <label className="block text-xs font-semibold text-slate-700 mb-1">
-              Photo Evidence (URL)
-            </label>
-            <div className="flex gap-2 items-center">
+              <label
+                htmlFor="report-description"
+                className="block text-xs font-semibold text-slate-700 mb-1"
+              >
+                Natural language description <span className="text-rose-500">*</span>
+              </label>
+              <textarea
+                id="report-description"
+                required
+                rows={3}
+                value={description}
+                onChange={(e) => setDescription(e.target.value)}
+                aria-invalid={descriptionMissing}
+                aria-describedby="report-description-help"
+                placeholder="e.g. Water is leaking under the sink washbasin whenever the tap runs..."
+                className={`${inputClass} ${descriptionMissing ? 'border-rose-300 ring-1 ring-rose-200' : ''}`}
+              />
+              <p
+                id="report-description-help"
+                className={`text-[11px] mt-1 ${descriptionMissing ? 'text-rose-600 font-medium' : 'text-slate-500'}`}
+              >
+                {descriptionMissing
+                  ? 'A description is required before submitting.'
+                  : 'Include what broke, where it is, and any immediate risk.'}
+              </p>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3 mt-3">
+                <div>
+                  <label htmlFor="report-zone" className="block text-[11px] font-medium text-slate-600 mb-1">
+                    Campus zone
+                  </label>
+                  <select id="report-zone" value={zone} onChange={(e) => setZone(e.target.value)} className={inputClass}>
+                    <option value="Hostel Village">Hostel Village</option>
+                    <option value="Academic Complex">Academic Complex</option>
+                    <option value="Central Library">Central Library</option>
+                    <option value="Sports & Rec">Sports &amp; Rec</option>
+                  </select>
+                </div>
+                <div>
+                  <label htmlFor="report-building" className="block text-[11px] font-medium text-slate-600 mb-1">
+                    Building
+                  </label>
+                  <input
+                    id="report-building"
+                    type="text"
+                    value={building}
+                    onChange={(e) => setBuilding(e.target.value)}
+                    className={inputClass}
+                  />
+                </div>
+                <div>
+                  <label htmlFor="report-floor" className="block text-[11px] font-medium text-slate-600 mb-1">
+                    Floor
+                  </label>
+                  <input
+                    id="report-floor"
+                    type="text"
+                    value={floor}
+                    onChange={(e) => setFloor(e.target.value)}
+                    className={inputClass}
+                  />
+                </div>
+                <div>
+                  <label htmlFor="report-room" className="block text-[11px] font-medium text-slate-600 mb-1">
+                    Room
+                  </label>
+                  <input
+                    id="report-room"
+                    type="text"
+                    value={room}
+                    onChange={(e) => setRoom(e.target.value)}
+                    className={inputClass}
+                  />
+                </div>
+              </div>
+            </section>
+
+            {/* Step 2 — Photo evidence */}
+            <section aria-labelledby="report-section-photo" className="border-t border-line pt-4">
+              <h3
+                id="report-section-photo"
+                className="flex items-center gap-2 text-xs font-bold text-slate-900 mb-2"
+              >
+                <span className="w-5 h-5 rounded-full bg-brand-600 text-white text-[10px] font-bold flex items-center justify-center">
+                  2
+                </span>
+                Photo evidence
+              </h3>
+
+              <label htmlFor="report-photo-url" className="block text-xs font-semibold text-slate-700 mb-1">
+                Photo URL (optional)
+              </label>
               <input
+                id="report-photo-url"
                 type="url"
                 value={photoUrl}
                 onChange={(e) => setPhotoUrl(e.target.value)}
                 placeholder="https://..."
-                className="flex-1 text-xs p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-slate-900 focus:bg-white focus:outline-hidden focus:ring-2 focus:ring-blue-500"
+                className={inputClass}
               />
-              {photoUrl && (
-                <img
-                  src={photoUrl}
-                  alt="Preview"
-                  className="w-10 h-10 rounded-lg object-cover border border-slate-200 shrink-0"
-                />
-              )}
-            </div>
-          </div>
 
-          {/* AI Intake Preview Card */}
-          <div className="p-4 rounded-2xl bg-gradient-to-br from-indigo-50/80 to-blue-50/50 border border-indigo-200/90 transition-all">
-            <div className="flex items-center justify-between mb-2">
-              <div className="flex items-center gap-1.5 text-xs font-bold text-indigo-950">
-                <Sparkles className="w-4 h-4 text-indigo-600" />
-                <span>AI Intake Assessment</span>
-              </div>
-
-              {aiMeta && (
-                <span
-                  className={`text-[10px] font-mono font-bold px-2 py-0.5 rounded-full border ${
-                    aiMeta.provider === 'gemma'
-                      ? 'bg-emerald-100 text-emerald-800 border-emerald-200'
-                      : 'bg-amber-100 text-amber-800 border-amber-200'
-                  }`}
+              <div className="mt-3 grid grid-cols-1 sm:grid-cols-[1fr_auto] gap-3 items-center">
+                <label
+                  htmlFor="report-photo-file"
+                  onDragOver={(e) => e.preventDefault()}
+                  onDrop={(e) => {
+                    e.preventDefault();
+                    handlePhotoFile(e.dataTransfer.files?.[0]);
+                  }}
+                  className="flex flex-col items-center justify-center gap-1 border-2 border-dashed border-line rounded-control bg-surface-muted p-4 text-center cursor-pointer hover:border-brand-300 hover:bg-brand-50/40 transition-colors"
                 >
-                  {aiMeta.provider === 'gemma' ? 'Live Gemini 3.8 Flash' : 'Fallback Rules (AI Offline)'}
+                  <Camera className="w-5 h-5 text-slate-400" />
+                  <span className="text-[11px] font-semibold text-slate-600">
+                    Drag &amp; drop an image, or click to browse
+                  </span>
+                  <span className="text-[10px] text-slate-400">PNG or JPG</span>
+                  <input
+                    id="report-photo-file"
+                    type="file"
+                    accept="image/*"
+                    className="sr-only"
+                    onChange={(e) => handlePhotoFile(e.target.files?.[0])}
+                  />
+                </label>
+
+                {photoUrl && (
+                  <div className="flex items-center gap-3">
+                    <img
+                      src={photoUrl}
+                      alt="Selected issue photo preview"
+                      className="w-16 h-16 rounded-control object-cover border border-line shrink-0"
+                      onError={(e) => {
+                        if (e.currentTarget.src !== FALLBACK_PHOTO) e.currentTarget.src = FALLBACK_PHOTO;
+                      }}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setPhotoUrl('')}
+                      aria-label="Remove selected photo"
+                      className="inline-flex items-center gap-1 px-3 py-1.5 rounded-control bg-surface border border-line text-slate-600 hover:bg-slate-50 text-xs font-semibold transition-colors"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                      Remove
+                    </button>
+                  </div>
+                )}
+              </div>
+            </section>
+
+            {/* Step 3 — AI recommendations */}
+            <section
+              aria-labelledby="report-section-ai"
+              className="border-t border-line pt-4"
+            >
+              <h3
+                id="report-section-ai"
+                className="flex items-center gap-2 text-xs font-bold text-slate-900 mb-2"
+              >
+                <span className="w-5 h-5 rounded-full bg-brand-600 text-white text-[10px] font-bold flex items-center justify-center">
+                  3
                 </span>
-              )}
+                AI recommendations
+              </h3>
 
-              {isAnalyzing && (
-                <div className="flex items-center gap-1 text-[11px] text-indigo-600">
-                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                  <span>Validating schema...</span>
-                </div>
-              )}
-            </div>
-
-            {aiAssessment ? (
-              <div className="space-y-2 text-xs">
-                <div className="flex flex-wrap items-center gap-2">
-                  <span className="font-bold text-slate-900">{aiAssessment.title}</span>
-                  <span className="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase bg-blue-100 text-blue-800">
-                    Dept: {aiAssessment.recommendedDepartment}
-                  </span>
-                  <span
-                    className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase ${
-                      aiAssessment.priority === 'Critical'
-                        ? 'bg-rose-100 text-rose-800 font-extrabold'
-                        : aiAssessment.priority === 'High'
-                        ? 'bg-amber-100 text-amber-800'
-                        : 'bg-slate-100 text-slate-700'
-                    }`}
-                  >
-                    Priority: {aiAssessment.priority}
+              <div className="p-4 rounded-card bg-accent-50/50 border border-accent-200">
+                <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
+                  <span className="flex items-center gap-1.5 text-xs font-bold text-brand-900">
+                    <Sparkles className="w-4 h-4 text-accent-600" />
+                    Advisory only — a human routes the ticket
                   </span>
 
-                  {aiAssessment.needsHumanReview && (
-                    <span className="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase bg-rose-600 text-white flex items-center gap-1">
-                      <ShieldAlert className="w-3 h-3" />
-                      <span>Safety Flag</span>
+                  {aiMeta && <ModeBadge provider={aiMeta.provider} />}
+
+                  {isAnalyzing && (
+                    <span role="status" className="flex items-center gap-1 text-[11px] text-brand-600">
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      Validating schema...
                     </span>
                   )}
                 </div>
 
-                <div className="bg-white/90 p-2.5 rounded-xl border border-indigo-100 space-y-1">
-                  <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">
-                    Observed Indicators:
-                  </span>
-                  <ul className="list-disc list-inside text-[11px] text-slate-700 space-y-0.5">
-                    {aiAssessment.observations.map((obs, i) => (
-                      <li key={i}>{obs}</li>
-                    ))}
-                  </ul>
-                </div>
+                {aiMeta?.provider !== 'gemma' && aiMeta && (
+                  <p className="flex items-start gap-1.5 text-[11px] text-amber-800 bg-amber-50 border border-amber-200 rounded-control px-2.5 py-1.5 mb-2">
+                    <Info className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+                    <span>
+                      Fallback rules produced this recommendation. No live model output was used.
+                    </span>
+                  </p>
+                )}
 
-                {aiAssessment.reviewReasons.length > 0 && (
-                  <div className="bg-rose-50 p-2 rounded-lg border border-rose-200 text-rose-800 text-[11px] flex items-start gap-1.5">
-                    <ShieldAlert className="w-3.5 h-3.5 shrink-0 text-rose-600 mt-0.5" />
-                    <div>
-                      <span className="font-bold">Human Review Flagged: </span>
-                      {aiAssessment.reviewReasons.join('; ')}
+                {aiAssessment ? (
+                  <div className="space-y-2 text-xs">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="font-bold text-slate-900">{aiAssessment.title}</span>
+                      <span className="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase bg-brand-100 text-brand-800 border border-brand-200">
+                        Dept: {aiAssessment.recommendedDepartment}
+                      </span>
+                      <PriorityBadge priority={aiAssessment.priority} />
+                      {aiAssessment.needsHumanReview && (
+                        <span className="inline-flex items-center gap-1 text-[10px] font-bold uppercase px-2 py-0.5 rounded-full bg-rose-100 text-rose-700 border border-rose-200">
+                          <ShieldAlert className="w-3 h-3" />
+                          Human review
+                        </span>
+                      )}
                     </div>
+
+                    <div className="bg-surface/90 p-2.5 rounded-control border border-accent-100 space-y-1">
+                      <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">
+                        Observed indicators
+                      </span>
+                      <ul className="list-disc list-inside text-[11px] text-slate-700 space-y-0.5">
+                        {aiAssessment.observations.map((obs, i) => (
+                          <li key={i}>{obs}</li>
+                        ))}
+                      </ul>
+                    </div>
+
+                    {aiAssessment.reviewReasons.length > 0 && (
+                      <div className="bg-rose-50 p-2.5 rounded-control border border-rose-200 text-rose-800 text-[11px] flex items-start gap-1.5">
+                        <ShieldAlert className="w-3.5 h-3.5 shrink-0 text-rose-600 mt-0.5" />
+                        <div>
+                          <span className="font-bold">Human review flagged: </span>
+                          {aiAssessment.reviewReasons.join('; ')}
+                        </div>
+                      </div>
+                    )}
                   </div>
+                ) : (
+                  <p className="text-[11px] text-brand-800">
+                    Describe the problem above. The system recommends a department and priority with
+                    schema verification.
+                  </p>
                 )}
               </div>
-            ) : (
-              <p className="text-[11px] text-indigo-700">
-                Describe the problem above. The model will recommend department and priority with Zod schema verification.
-              </p>
-            )}
-          </div>
+            </section>
 
-          <div className="pt-2 border-t border-slate-100 flex items-center justify-end gap-2">
-            <button
-              type="button"
-              onClick={onClose}
-              className="px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-xl transition-colors"
-            >
-              Cancel
-            </button>
-            <button
-              type="submit"
-              disabled={isSubmitting || !description.trim()}
-              className="inline-flex items-center gap-1.5 px-5 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold shadow-sm transition-all disabled:opacity-50"
-            >
-              {isSubmitting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5" />}
-              <span>Submit & Generate Work Order</span>
-            </button>
-          </div>
-        </form>
+            {/* Step 4 — Review & submit */}
+            <section aria-labelledby="report-section-review" className="border-t border-line pt-4">
+              <h3
+                id="report-section-review"
+                className="flex items-center gap-2 text-xs font-bold text-slate-900 mb-2"
+              >
+                <span className="w-5 h-5 rounded-full bg-brand-600 text-white text-[10px] font-bold flex items-center justify-center">
+                  4
+                </span>
+                Review &amp; submit
+              </h3>
+              <p className="text-[11px] text-slate-500">
+                Your original description and the returned ticket ID are sent exactly as entered.
+              </p>
+
+              <div className="pt-3 mt-3 border-t border-line flex items-center justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={onClose}
+                  className="px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-control transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={isSubmitting || !description.trim()}
+                  className="inline-flex items-center gap-1.5 px-5 py-2.5 rounded-control bg-brand-600 hover:bg-brand-700 text-white text-xs font-bold shadow-card transition-colors disabled:opacity-50"
+                >
+                  {isSubmitting ? (
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  ) : (
+                    <Send className="w-3.5 h-3.5" />
+                  )}
+                  <span>Submit &amp; Generate Work Order</span>
+                </button>
+              </div>
+            </section>
+          </form>
+        </div>
       </div>
     </div>
   );

@@ -9,7 +9,7 @@ import { TicketDetailModal } from './components/TicketDetailModal';
 import { RepairCompletionModal } from './components/RepairCompletionModal';
 import { StudentResolutionModal } from './components/StudentResolutionModal';
 import { DemoWalkthroughModal } from './components/DemoWalkthroughModal';
-import { Building2, Sparkles, CheckCircle2 } from 'lucide-react';
+import { Building2, Sparkles, CheckCircle2, AlertTriangle, RefreshCw } from 'lucide-react';
 
 export function App() {
   const [currentRole, setCurrentRole] = useState<UserRole>('student');
@@ -23,6 +23,7 @@ export function App() {
 
   const [tickets, setTickets] = useState<Ticket[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
   const [isResetting, setIsResetting] = useState(false);
 
   // Modals state
@@ -41,14 +42,15 @@ export function App() {
 
   // Load tickets from server
   const fetchTickets = async () => {
+    setLoadError(false);
     try {
       const res = await fetch('/api/tickets');
-      if (res.ok) {
-        const data = await res.json();
-        setTickets(data);
-      }
+      if (!res.ok) throw new Error(`Request failed: ${res.status}`);
+      const data = await res.json();
+      setTickets(data);
     } catch (e) {
       console.error('Error fetching tickets:', e);
+      setLoadError(true);
     } finally {
       setLoading(false);
     }
@@ -151,7 +153,7 @@ export function App() {
   };
 
   return (
-    <div className="min-h-screen bg-slate-50 flex flex-col font-sans">
+    <div className="min-h-screen bg-canvas flex flex-col font-sans">
       <Navbar
         currentRole={currentRole}
         setCurrentRole={handleRoleChange}
@@ -165,8 +167,25 @@ export function App() {
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 flex-1 w-full">
         {loading ? (
           <div className="py-24 flex flex-col items-center justify-center text-slate-500 gap-3">
-            <div className="w-8 h-8 rounded-full border-4 border-blue-600 border-t-transparent animate-spin" />
+            <div className="w-8 h-8 rounded-full border-4 border-brand-600 border-t-transparent animate-spin" />
             <span className="text-xs font-semibold">Connecting to CampusCare Facility Engine...</span>
+          </div>
+        ) : loadError ? (
+          <div className="py-24 flex flex-col items-center justify-center text-center gap-3">
+            <div className="w-12 h-12 rounded-card bg-rose-50 border border-rose-200 flex items-center justify-center">
+              <AlertTriangle className="w-6 h-6 text-rose-600" />
+            </div>
+            <h2 className="text-sm font-bold text-slate-900">Could not reach the CampusCare server</h2>
+            <p className="text-xs text-slate-500 max-w-md">
+              Ticket data could not be loaded. Check that the API server is running, then try again.
+            </p>
+            <button
+              onClick={fetchTickets}
+              className="mt-1 inline-flex items-center gap-2 px-4 py-2 rounded-control bg-brand-600 hover:bg-brand-700 text-white text-xs font-bold transition-colors"
+            >
+              <RefreshCw className="w-3.5 h-3.5" />
+              Retry
+            </button>
           </div>
         ) : (
           <>
@@ -222,18 +241,18 @@ export function App() {
       </main>
 
       {/* Footer */}
-      <footer className="border-t border-slate-200 bg-white py-6 text-slate-500 text-xs mt-12">
+      <footer className="border-t border-line bg-surface py-6 text-slate-500 text-xs mt-12">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-col sm:flex-row items-center justify-between gap-3">
           <div className="flex items-center gap-2">
-            <Building2 className="w-4 h-4 text-blue-600" />
+            <Building2 className="w-4 h-4 text-brand-600" />
             <span className="font-bold text-slate-900">CampusCare</span>
-            <span>— Smart campus maintenance & issue-resolution platform</span>
+            <span className="hidden sm:inline">— Smart campus maintenance &amp; issue-resolution platform</span>
           </div>
-          <div className="flex items-center gap-4 text-slate-400 font-medium">
+          <div className="flex flex-wrap items-center justify-center gap-x-4 gap-y-1 text-slate-400 font-medium">
             <span>Report it • Route it • Resolve it • Verify it</span>
-            <span>•</span>
+            <span aria-hidden="true">•</span>
             <span>Gemini 3.8 Flash Verification Engine</span>
-            <span>•</span>
+            <span aria-hidden="true">•</span>
             <span>MIT License</span>
           </div>
         </div>
